@@ -1,0 +1,8 @@
+^pins-extras\.Rproj$
+^\.Rproj\.user$
+^\.Rhistory$
+^\.RData$
+^\.DS_Store$
+^LICENSE\.md$
+^\.cache/
+^scripts/

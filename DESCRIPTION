@@ -1,0 +1,27 @@
+Package: pinsExtras
+Title: Additional Boards for pins
+Version: 0.0.0.9000
+Authors@R:
+    person("Your", "Name", , "first.last@example.com", role = c("aut", "cre"))
+Description: Extra board implementations for the pins package, starting with a
+    Snowflake stage board that stores pins in a Snowflake internal stage.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports:
+    cli,
+    DBI,
+    digest,
+    fs,
+    generics,
+    odbc,
+    pins,
+    purrr,
+    rlang,
+    tibble,
+    withr,
+    yaml
+Suggests:
+    testthat (>= 3.1.7)
+Config/testthat/edition: 3
