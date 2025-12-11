@@ -14,7 +14,10 @@ sf_normalize_path <- function(board, ...) {
   path <- fs::path(board$path, ...)
   bads <- nchar(path) > 1 & grepl("^/", path)
   path[bads] <- substr(path[bads], 2, nchar(path[bads]))
-  gsub("//+", "/", path)
+  path <- gsub("//+", "/", path)
+  # Handle edge case: fs::path("", "") returns "/" which should be ""
+  path[path == "/"] <- ""
+  path
 }
 
 sf_stage_cmd <- function(board, sql) {
@@ -24,10 +27,35 @@ sf_stage_cmd <- function(board, sql) {
 sf_stage_list <- function(board, dir = "") {
   prefix <- sf_normalize_path(board, dir)
   df <- sf_stage_cmd(board, sprintf("LIST %s", board$stage))
+
+  if (nrow(df) == 0) {
+    return(df)
+  }
+
+  # For named stages, Snowflake prefixes paths with the stage name (e.g., "mystage/...")
+ # Strip this prefix so paths are relative to the stage root
+  stage_name <- sf_extract_stage_name(board$stage)
+  stage_prefix <- paste0(stage_name, "/")
+  if (all(startsWith(df$name, stage_prefix))) {
+    df$name <- sub(paste0("^", stage_prefix), "", df$name)
+  }
+
   if (prefix != "") {
     df <- df[startsWith(df$name, prefix), , drop = FALSE]
   }
   df
+}
+
+# Extract the stage name from a stage reference
+# "@db.schema.stage" -> "stage"
+# "@stage" -> "stage"
+# "@~" -> "~"
+sf_extract_stage_name <- function(stage) {
+  # Remove leading @
+  s <- sub("^@", "", stage)
+  # Get the last component (after last dot, if any)
+  parts <- strsplit(s, "\\.")[[1]]
+  parts[[length(parts)]]
 }
 
 sf_stage_upload <- function(board, src, dest) {

@@ -10,11 +10,18 @@ test_that("sf_normalize_path handles edge cases", {
     "base/path/subdir"
   )
 
-  # Empty board path
+  # Empty board path with subdir
   mock_board_empty <- list(path = "")
   expect_equal(
     as.character(pinsExtras:::sf_normalize_path(mock_board_empty, "subdir")),
     "subdir"
+  )
+
+  # Empty board path AND empty dir should return "" not "/"
+
+  expect_equal(
+    as.character(pinsExtras:::sf_normalize_path(mock_board_empty, "")),
+    ""
   )
 
   # Leading slash should be stripped
@@ -127,11 +134,25 @@ test_that("board_sf_stage validates inputs", {
   )
 })
 
-test_that("stage name normalization adds @ prefix", {
-  # We can't fully test without a real connection, but we can check the logic
- # by examining the code path. The board constructor should add @ if missing.
+test_that("sf_extract_stage_name extracts stage name correctly", {
+  # Simple stage with @ prefix
+  expect_equal(pinsExtras:::sf_extract_stage_name("@mystage"), "mystage")
 
-  # This is a code inspection test - verifying the logic exists
-  # in board_sf_stage.R line: if (!startsWith(stage, "@")) stage <- paste0("@", stage)
-  expect_true(TRUE)
+  # User stage
+  expect_equal(pinsExtras:::sf_extract_stage_name("@~"), "~")
+
+  # Fully qualified stage name (db.schema.stage)
+  expect_equal(
+    pinsExtras:::sf_extract_stage_name("@mydb.myschema.mystage"),
+    "mystage"
+  )
+
+  # Two-part name (schema.stage)
+  expect_equal(
+    pinsExtras:::sf_extract_stage_name("@myschema.mystage"),
+    "mystage"
+  )
+
+  # Without @ prefix (shouldn't happen but handle gracefully)
+  expect_equal(pinsExtras:::sf_extract_stage_name("mystage"), "mystage")
 })

@@ -296,3 +296,41 @@ test_that("board_deparse returns valid expression", {
   expect_true(is.call(expr))
   expect_true(grepl("board_sf_stage", deparse(expr)[[1]]))
 })
+
+# =============================================================================
+# Named Stage with Empty Path
+# =============================================================================
+
+test_that("board works with named stage and empty path", {
+  skip_if_no_sf_stage()
+
+ # Skip if using user stage (@~) - this test is for named stages
+  stage <- Sys.getenv("PINS_SF_STAGE", "@~")
+  if (stage == "@~" || stage == "~") {
+    skip("Test requires a named stage, not user stage")
+  }
+
+  conn <- sf_stage_test_conn()
+  withr::defer(DBI::dbDisconnect(conn))
+
+  # Create board with empty path (pins stored at stage root)
+  b <- board_sf_stage(
+    conn = conn,
+    stage = stage,
+    path = "",
+    connect_args = sf_stage_test_args()
+  )
+
+  pin_name <- paste0("empty-path-test-", as.integer(Sys.time()))
+  withr::defer(pinsExtras:::sf_stage_delete(b, pin_name))
+
+  # Write and read should work with empty path
+  pin_write(b, 1:5, pin_name)
+  expect_true(pin_exists(b, pin_name))
+  expect_true(pin_name %in% pin_list(b))
+  expect_equal(pin_read(b, pin_name), 1:5)
+
+  # Clean up
+  pin_delete(b, pin_name)
+  expect_false(pin_exists(b, pin_name))
+})
