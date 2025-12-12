@@ -1,4 +1,7 @@
 .Rproj.user
+.Rprofile
+.Renviron
 
 /rv
 rv.lock
+rproject.toml

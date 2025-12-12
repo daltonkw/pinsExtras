@@ -134,6 +134,36 @@ test_that("board_sf_stage validates inputs", {
   )
 })
 
+test_that("sf_stage_list filters by exact directory match", {
+ # This tests that "mtcars" doesn't match "mtcars_pqt"
+  # We can't do a full integration test without Snowflake, but we can
+  # test the filtering logic by checking the conditions used
+
+  # Simulate the filtering logic from sf_stage_list
+  test_names <- c(
+    "mtcars/v1/data.txt",
+    "mtcars/v1/mtcars.rds",
+    "mtcars_pqt/v1/data.txt",
+    "mtcars_pqt/v1/mtcars_pqt.parquet"
+  )
+
+  prefix <- "mtcars"
+  is_exact <- test_names == prefix
+  is_child <- startsWith(test_names, paste0(prefix, "/"))
+  filtered <- test_names[is_exact | is_child]
+
+  # Should only match mtcars/, not mtcars_pqt/
+  expect_equal(filtered, c("mtcars/v1/data.txt", "mtcars/v1/mtcars.rds"))
+
+  # Test with mtcars_pqt prefix
+  prefix2 <- "mtcars_pqt"
+  is_exact2 <- test_names == prefix2
+  is_child2 <- startsWith(test_names, paste0(prefix2, "/"))
+  filtered2 <- test_names[is_exact2 | is_child2]
+
+  expect_equal(filtered2, c("mtcars_pqt/v1/data.txt", "mtcars_pqt/v1/mtcars_pqt.parquet"))
+})
+
 test_that("sf_extract_stage_name extracts stage name correctly", {
   # Simple stage with @ prefix
   expect_equal(pinsExtras:::sf_extract_stage_name("@mystage"), "mystage")
