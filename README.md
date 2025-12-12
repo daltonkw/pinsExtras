@@ -1,22 +1,23 @@
 # pinsExtras
 
-Extra boards for the [`pins`](https://pins.rstudio.com) package. Current focus: a Snowflake stage board that stores pins in a Snowflake internal stage via ODBC.
+Extra boards for the [`pins`](https://pins.rstudio.com) package.
+
+**Current focus**: A Snowflake stage board (`board_sf_stage()`) that stores pins in Snowflake **internal stages only** via ODBC. External stages (S3, Azure, GCS-backed) are not supported.
 
 ## Installation
 
-``` r
+```r
 # Install dependencies
 install.packages(c("DBI", "odbc", "pins"))
 ```
-
-``` r
+```r
 # Install pinsExtras from local source
 install.packages("path/to/pinsExtras", repos = NULL, type = "source")
 ```
 
 ## Quick Start
 
-``` r
+```r
 library(pinsExtras)
 
 # Create connection (env vars must be set - see Setup below)
@@ -43,7 +44,7 @@ pin_delete(board, "my-cars")
 DBI::dbDisconnect(conn)
 ```
 
-------------------------------------------------------------------------
+---
 
 ## Setup Instructions
 
@@ -51,15 +52,15 @@ DBI::dbDisconnect(conn)
 
 #### Step 1: Install Snowflake ODBC Driver
 
-1.  Download from https://developers.snowflake.com/odbc/ (Windows 64-bit `.msi`)
-2.  Run the installer with default settings
-3.  Verify: Press `Win + R` → type `odbcad32` → **Drivers** tab → look for `SnowflakeDSIIDriver`
+1. Download from https://developers.snowflake.com/odbc/ (Windows 64-bit `.msi`)
+2. Run the installer with default settings
+3. Verify: Press `Win + R` → type `odbcad32` → **Drivers** tab → look for `SnowflakeDSIIDriver`
 
 #### Step 2: Set Up JWT Authentication
 
 Generate a key pair (requires OpenSSL - install via `winget install OpenSSL` if needed):
 
-``` powershell
+```powershell
 # Create directory
 mkdir "$env:USERPROFILE\.snowflake" -Force
 
@@ -75,42 +76,42 @@ Get-Content "$env:USERPROFILE\.snowflake\rsa_key.pub"
 
 Register the public key in Snowflake:
 
-``` sql
+```sql
 ALTER USER your_username SET RSA_PUBLIC_KEY='MIIBIjANBgkq...your_public_key...';
 ```
 
 #### Step 3: Set Environment Variables
 
-1.  Press `Win + R` → type `sysdm.cpl` → **Advanced** → **Environment Variables**
-2.  Add these **User variables**:
+1. Press `Win + R` → type `sysdm.cpl` → **Advanced** → **Environment Variables**
+2. Add these **User variables**:
 
-| Variable                   | Example Value                        |
-|----------------------------|--------------------------------------|
-| `PINS_SF_SERVER`           | `acct-id.snowflakecomputing.com`     |
-| `PINS_SF_USER`             | `MYUSERNAME`                         |
-| `PINS_SF_AUTHENTICATOR`    | `SNOWFLAKE_JWT`                      |
+| Variable | Example Value |
+|----------|---------------|
+| `PINS_SF_SERVER` | `acct-id.snowflakecomputing.com` |
+| `PINS_SF_USER` | `MYUSERNAME` |
+| `PINS_SF_AUTHENTICATOR` | `SNOWFLAKE_JWT` |
 | `PINS_SF_PRIVATE_KEY_FILE` | `C:\Users\You\.snowflake\rsa_key.p8` |
-| `PINS_SF_WAREHOUSE`        | `COMPUTE_WH`                         |
+| `PINS_SF_WAREHOUSE` | `COMPUTE_WH` |
 
 Optional:
 
-| Variable           | Description                |
-|--------------------|----------------------------|
-| `PINS_SF_DATABASE` | Default database           |
-| `PINS_SF_SCHEMA`   | Default schema             |
-| `PINS_SF_ROLE`     | Snowflake role             |
-| `PINS_SF_STAGE`    | Stage name (default: `@~`) |
-| `PINS_SF_DRIVER`   | Override driver name       |
+| Variable | Description |
+|----------|-------------|
+| `PINS_SF_DATABASE` | Default database |
+| `PINS_SF_SCHEMA` | Default schema |
+| `PINS_SF_ROLE` | Snowflake role |
+| `PINS_SF_STAGE` | Stage name (default: `@~`) |
+| `PINS_SF_DRIVER` | Override driver name |
 
-3.  Click OK and **restart R/RStudio**.
+3. Click OK and **restart R/RStudio**.
 
-------------------------------------------------------------------------
+---
 
 ### Linux (Ubuntu/Debian)
 
 #### Step 1: Install Snowflake ODBC Driver
 
-``` bash
+```bash
 # Download and install (check Snowflake docs for latest version)
 wget https://sfc-repo.snowflakecomputing.com/odbc/linux/latest/snowflake-odbc-3.13.0.x86_64.deb
 sudo dpkg -i snowflake-odbc-3.13.0.x86_64.deb
@@ -123,20 +124,20 @@ sudo ln -sf /usr/lib/x86_64-linux-gnu/libodbcinst.so.2 /usr/lib/x86_64-linux-gnu
 
 Create `odbcinst.ini` in your project or `/etc/`:
 
-``` ini
+```ini
 [Snowflake]
 Driver = /usr/lib/snowflake/odbc/lib/libSnowflake.so
 ```
 
 If using a project-local file, set `ODBCSYSINI` to its directory:
 
-``` bash
+```bash
 export ODBCSYSINI=/path/to/project
 ```
 
 #### Step 3: Set Up JWT Authentication
 
-``` bash
+```bash
 mkdir -p ~/.snowflake
 
 # Generate keys
@@ -149,7 +150,7 @@ cat ~/.snowflake/rsa_key.pub
 
 Register in Snowflake:
 
-``` sql
+```sql
 ALTER USER your_username SET RSA_PUBLIC_KEY='MIIBIjANBgkq...';
 ```
 
@@ -157,7 +158,7 @@ ALTER USER your_username SET RSA_PUBLIC_KEY='MIIBIjANBgkq...';
 
 Add to `~/.bashrc` or `~/.profile`:
 
-``` bash
+```bash
 export PINS_SF_SERVER="acct-id.snowflakecomputing.com"
 export PINS_SF_USER="MYUSERNAME"
 export PINS_SF_AUTHENTICATOR="SNOWFLAKE_JWT"
@@ -166,46 +167,46 @@ export PINS_SF_WAREHOUSE="COMPUTE_WH"
 # Optional: export ODBCSYSINI="/path/to/project"
 ```
 
-------------------------------------------------------------------------
+---
 
 ## Environment Variables Reference
 
-| Variable                   | Required | Description                                                 |
-|----------------------|----------------------|----------------------------|
-| `PINS_SF_SERVER`           | Yes      | Snowflake account URL (e.g., `acct.snowflakecomputing.com`) |
-| `PINS_SF_USER`             | Yes      | Snowflake username                                          |
-| `PINS_SF_AUTHENTICATOR`    | Yes      | Auth method (`SNOWFLAKE_JWT` recommended)                   |
-| `PINS_SF_PRIVATE_KEY_FILE` | Yes      | Path to private key file                                    |
-| `PINS_SF_WAREHOUSE`        | Yes      | Compute warehouse name                                      |
-| `PINS_SF_DATABASE`         | No       | Default database                                            |
-| `PINS_SF_SCHEMA`           | No       | Default schema                                              |
-| `PINS_SF_ROLE`             | No       | Snowflake role to use                                       |
-| `PINS_SF_STAGE`            | No       | Stage name (default: `@~` user stage)                       |
-| `PINS_SF_DRIVER`           | No       | Override ODBC driver name                                   |
-| `ODBCSYSINI`               | No       | Linux only: path to `odbcinst.ini` directory                |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PINS_SF_SERVER` | Yes | Snowflake account URL (e.g., `acct.snowflakecomputing.com`) |
+| `PINS_SF_USER` | Yes | Snowflake username |
+| `PINS_SF_AUTHENTICATOR` | Yes | Auth method (`SNOWFLAKE_JWT` recommended) |
+| `PINS_SF_PRIVATE_KEY_FILE` | Yes | Path to private key file |
+| `PINS_SF_WAREHOUSE` | Yes | Compute warehouse name |
+| `PINS_SF_DATABASE` | No | Default database |
+| `PINS_SF_SCHEMA` | No | Default schema |
+| `PINS_SF_ROLE` | No | Snowflake role to use |
+| `PINS_SF_STAGE` | No | Stage name (default: `@~` user stage) |
+| `PINS_SF_DRIVER` | No | Override ODBC driver name |
+| `ODBCSYSINI` | No | Linux only: path to `odbcinst.ini` directory |
 
-------------------------------------------------------------------------
+---
 
 ## Troubleshooting
 
 ### "Driver not found"
 
--   **Windows**: Run `odbcad32` and verify `SnowflakeDSIIDriver` appears in Drivers tab
--   **Linux**: Check `ODBCSYSINI` points to directory containing `odbcinst.ini`
--   **Override**: Set `PINS_SF_DRIVER` environment variable explicitly
+- **Windows**: Run `odbcad32` and verify `SnowflakeDSIIDriver` appears in Drivers tab
+- **Linux**: Check `ODBCSYSINI` points to directory containing `odbcinst.ini`
+- **Override**: Set `PINS_SF_DRIVER` environment variable explicitly
 
 ### "Authentication failed"
 
--   Verify public key is registered: `DESC USER your_username;`
--   Check private key path is correct and file is readable
--   Ensure key was generated without a passphrase
+- Verify public key is registered: `DESC USER your_username;`
+- Check private key path is correct and file is readable
+- Ensure key was generated without a passphrase
 
 ### "Warehouse does not exist"
 
--   Verify warehouse name matches exactly (case-sensitive)
--   Check you have USAGE privilege on the warehouse
+- Verify warehouse name matches exactly (case-sensitive)
+- Check you have USAGE privilege on the warehouse
 
-------------------------------------------------------------------------
+---
 
 ## Tests
 
@@ -213,14 +214,20 @@ Integration tests in `tests/testthat/test-board_sf_stage.R` are skipped unless `
 
 Run tests:
 
-``` r
+```r
 devtools::test()
 ```
 
-------------------------------------------------------------------------
+---
+
+## Scope and Limitations
+
+**Internal Stages Only**: This package is designed exclusively for Snowflake internal stages (user stages like `@~`, named stages like `@mystage`, table stages, etc.).
+
+**External Stages Not Supported**: External stages backed by cloud storage (S3, Azure Blob Storage, Google Cloud Storage) are out of scope and will not be supported. Users needing external stage support should use the native cloud board implementations in the main `pins` package (`board_s3()`, `board_azure()`, `board_gcs()`).
 
 ## Roadmap
 
--   Keep as standalone package; do not wire into pins core
--   Add support for external stages (S3/Azure-backed)
--   Connection pooling for high-throughput use cases
+- Keep as standalone package; do not wire into pins core
+- Connection pooling for high-throughput use cases
+- Performance optimizations for bulk operations

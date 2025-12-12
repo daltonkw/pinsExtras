@@ -2,7 +2,7 @@ Package: pinsExtras
 Title: Additional Boards for pins
 Version: 0.0.0.9000
 Authors@R:
-    person("Your", "Name", , "first.last@example.com", role = c("aut", "cre"))
+    person("Kevin", "Dalton", , "kevin.dalton@example.com", role = c("aut", "cre"))
 Description: Extra board implementations for the pins package, starting with a
     Snowflake stage board that stores pins in a Snowflake internal stage.
 License: MIT + file LICENSE
