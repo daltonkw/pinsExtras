@@ -160,3 +160,54 @@ sf_odbc_driver <- function() {
 }
 
 # %||% is imported from rlang in pinsExtras-package.R
+
+#' Check Snowflake Connection Health
+#'
+#' Verifies that the DBI connection is valid and provides helpful error messages
+#' for reconnection if the connection has been closed or is invalid.
+#'
+#' @param board A pins board object with a `conn` element
+#' @param call Caller environment for error reporting
+#'
+#' @return Invisible NULL if connection is valid; otherwise throws an error
+#' @keywords internal
+sf_check_connection <- function(board, call = rlang::caller_env()) {
+  # Check if connection object exists
+  if (is.null(board$conn)) {
+    cli::cli_abort(
+      c(
+        "Board has no database connection.",
+        "i" = "The board object may have been created incorrectly."
+      ),
+      call = call
+    )
+  }
+
+  # Check if connection is valid using DBI
+  if (!DBI::dbIsValid(board$conn)) {
+    msg <- c(
+      "Database connection is no longer valid.",
+      "i" = "The connection may have been closed or timed out.",
+      ">" = "To reconnect, create a new board with a fresh connection:"
+    )
+
+    # Add reconnection guidance if connect_args are available
+    if (!is.null(board$connect_args)) {
+      msg <- c(
+        msg,
+        " " = "  conn <- DBI::dbConnect(odbc::odbc(), ...)",
+        " " = "  board <- board_sf_stage(conn, stage = \"{board$stage}\", path = \"{board$path}\", connect_args = ...)"
+      )
+    } else {
+      msg <- c(
+        msg,
+        " " = "  conn <- DBI::dbConnect(odbc::odbc(), ...)",
+        " " = "  board <- board_sf_stage(conn, stage = \"{board$stage}\", path = \"{board$path}\")"
+      )
+    }
+
+    cli::cli_abort(msg, call = call)
+  }
+
+  invisible(NULL)
+}

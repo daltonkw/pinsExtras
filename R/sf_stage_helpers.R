@@ -21,6 +21,10 @@ sf_normalize_path <- function(board, ...) {
 }
 
 sf_stage_cmd <- function(board, sql) {
+  # Check connection health before executing command
+  # This provides helpful error messages if connection is dead
+  sf_check_connection(board)
+
   DBI::dbGetQuery(board$conn, sql)
 }
 
@@ -32,7 +36,7 @@ sf_stage_list <- function(board, dir = "") {
     return(df)
   }
 
- # For named stages, Snowflake prefixes paths with the stage name (e.g., "mystage/...")
+  # For named stages, Snowflake prefixes paths with the stage name (e.g., "mystage/...")
  # Strip this prefix so paths are relative to the stage root
   stage_name <- sf_extract_stage_name(board$stage)
   stage_prefix <- paste0(stage_name, "/")
@@ -42,7 +46,7 @@ sf_stage_list <- function(board, dir = "") {
 
   if (prefix != "") {
     # Match exact path OR directory children (prefix + "/")
-    # This prevents "mtcars" from matching "mtcars_*"
+    # This prevents "mtcars" from matching "mtcars_pqt"
     is_exact <- df$name == prefix
     is_child <- startsWith(df$name, paste0(prefix, "/"))
     df <- df[is_exact | is_child, , drop = FALSE]

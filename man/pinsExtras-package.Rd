@@ -9,7 +9,7 @@
 Extra board implementations for the \code{pins} package.
 }
 \author{
-\strong{Maintainer}: Your Name \email{first.last@example.com}
+\strong{Maintainer}: Kevin Dalton \email{_._@example.com}
 
 }
 \keyword{internal}

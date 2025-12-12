@@ -14,17 +14,21 @@ board_sf_stage(
 )
 }
 \arguments{
-\item{conn}{A live \code{DBIConnection} to Snowflake, typically created with
-\code{DBI::dbConnect(odbc::odbc(), ...)}.}
+\item{conn}{A live DBI connection to Snowflake, created with
+\code{DBI::dbConnect(odbc::odbc(), Driver = "Snowflake", ...)}.}
 
-\item{stage}{Stage name (e.g., "@mystage" or "@~"). If missing the \code{@}
-prefix, it will be added.}
+\item{stage}{Stage name (e.g., \code{"@mystage"}, \code{"@~"}, or
+\code{"@database.schema.mystage"}). If the \code{@} prefix is missing, it will
+be added automatically.}
 
-\item{path}{Optional path prefix inside the stage for this board.}
+\item{path}{Optional path prefix inside the stage for this board. Use this
+to create multiple independent boards within a single stage. Defaults to
+\code{""} (stage root).}
 
-\item{connect_args}{Optional list of arguments that can be used to recreate
-the connection via \code{DBI::dbConnect(odbc::odbc(), !!!connect_args)}. Stored
-for use by \code{\link[pins:board_deparse]{pins::board_deparse()}}.}
+\item{connect_args}{Optional named list of arguments that can be passed to
+\code{DBI::dbConnect(odbc::odbc(), ...)} to recreate the connection. This is
+stored in the board object and used by \code{\link[pins:board_deparse]{pins::board_deparse()}} to generate
+reproducible board creation code. If \code{NULL}, \code{board_deparse()} will fail.}
 
 \item{versioned}{Should this board be registered with support for versions?}
 
@@ -32,7 +36,150 @@ for use by \code{\link[pins:board_deparse]{pins::board_deparse()}}.}
 downloading files multiple times. The default stores in a standard
 cache location for your operating system, but you can override if needed.}
 }
+\value{
+A Snowflake stage board object, which is a subclass of \code{pins_board}.
+}
 \description{
-Pin data to a Snowflake internal stage using the Snowflake ODBC driver via
-DBI + odbc.
+Pin data to a Snowflake internal stage using the Snowflake ODBC driver
+via DBI and odbc. This allows you to share pins across projects and
+users through Snowflake's stage infrastructure.
+}
+\section{Authentication}{
+\code{board_sf_stage()} requires an active DBI connection to Snowflake. You
+typically create this connection using \code{DBI::dbConnect(odbc::odbc(), ...)}.
+The Snowflake ODBC driver supports several authentication methods:
+\itemize{
+\item \strong{Username and password}: Pass \code{UID} and \code{PWD} to \code{dbConnect()}.
+(Not recommended since credentials may be recorded in \code{.Rhistory})
+\item \strong{Key pair authentication (JWT)}: Pass \code{Authenticator = "SNOWFLAKE_JWT"}
+and \code{PRIV_KEY_FILE = "path/to/key.p8"}. This is the recommended method
+for automated workflows.
+\item \strong{SSO/Federated authentication}: Pass \code{Authenticator = "externalbrowser"}
+to use browser-based SSO.
+\item \strong{OAuth}: Pass \code{Authenticator = "oauth"} and \code{Token} with your OAuth token.
+}
+
+The connection must have appropriate privileges on the target stage
+(e.g., \code{READ}, \code{WRITE} for internal stages, or access to the underlying
+cloud storage for external stages).
+}
+
+\section{Details}{
+\strong{Important}: This board is designed for \strong{internal Snowflake stages only}.
+External stages (backed by S3, Azure Blob Storage, or GCS) are not currently
+supported and may produce unexpected results.
+\itemize{
+\item The \verb{@~} stage is a special user stage that exists by default for each
+Snowflake user. It's convenient for testing but not suitable for sharing.
+\item You can use \code{path} to maintain multiple independent pin boards within
+a single stage, similar to how \code{prefix} works for S3 boards.
+\item Stage names can be simple (\verb{@mystage}) or fully qualified
+(\verb{@database.schema.mystage}). The \code{@} prefix is added automatically if
+omitted.
+\item \code{board_sf_stage()} is powered by the DBI and odbc packages, which are
+suggested dependencies of pinsExtras. You also need the Snowflake ODBC
+driver installed on your system.
+}
+}
+
+\section{Edge Cases and Limitations}{
+\strong{Pin Names}:
+\itemize{
+\item Pin names can contain hyphens (\code{-}), underscores (\verb{_}), dots (\code{.}), and
+numbers. These have been tested and work correctly.
+\item Very long pin names (100+ characters) are supported and tested.
+\item Pin names cannot be \code{"data.txt"} (reserved for metadata).
+}
+
+\strong{Empty and Special Data}:
+\itemize{
+\item Empty data frames (zero rows), NA values, and zero-length vectors are
+fully supported and will round-trip correctly.
+\item Single-value data (scalars) and complex nested structures work as expected.
+}
+
+\strong{Concurrent Access}:
+\itemize{
+\item With \code{versioned = TRUE} (default), concurrent writes create separate
+versions safely. Each write generates a unique version based on timestamp
+and content hash.
+\item With \code{versioned = FALSE}, concurrent writes follow last-write-wins behavior.
+The most recent write will overwrite earlier writes.
+}
+
+\strong{Connection Management}:
+\itemize{
+\item Snowflake connections can become invalid due to timeouts or network issues.
+The board checks connection health before operations and provides clear
+error messages with reconnection guidance.
+\item Auto-reconnect is not supported. If a connection becomes invalid, you must
+create a new connection and board object manually.
+\item Store \code{connect_args} when creating the board to get helpful reconnection
+examples in error messages.
+}
+
+\strong{Metadata}:
+\itemize{
+\item Pin metadata (tags, URLs, descriptions) fully supports special characters,
+Unicode, and complex strings. All metadata is preserved exactly during
+write/read cycles.
+\item Large numbers of tags (50+) and multiple URLs are supported.
+}
+
+\strong{Versions}:
+\itemize{
+\item Many versions (10+) per pin are supported and tested. Version management
+operations (listing, deleting specific versions) work correctly with
+large version counts.
+\item Deleting a middle version doesn't affect other versions.
+}
+}
+
+\examples{
+\dontrun{
+# Connect to Snowflake using key pair authentication
+library(DBI)
+con <- dbConnect(
+  odbc::odbc(),
+  Driver = "Snowflake",
+  Server = "myaccount.snowflakecomputing.com",
+  UID = "myuser",
+  Authenticator = "SNOWFLAKE_JWT",
+  PRIV_KEY_FILE = "~/.snowflake/rsa_key.p8",
+  Warehouse = "COMPUTE_WH"
+)
+
+# Create a board using the user stage
+board <- board_sf_stage(con, stage = "@~")
+
+# Write and read a pin
+board |> pin_write(mtcars, "mtcars")
+board |> pin_read("mtcars")
+
+# Use a named stage with a path prefix
+board_prod <- board_sf_stage(
+  con,
+  stage = "@my_database.my_schema.pin_stage",
+  path = "production"
+)
+
+# Store connect_args for reproducibility
+connect_args <- list(
+  Driver = "Snowflake",
+  Server = "myaccount.snowflakecomputing.com",
+  UID = "myuser",
+  Authenticator = "SNOWFLAKE_JWT",
+  PRIV_KEY_FILE = "~/.snowflake/rsa_key.p8",
+  Warehouse = "COMPUTE_WH"
+)
+
+board <- board_sf_stage(
+  con,
+  stage = "@~",
+  connect_args = connect_args
+)
+
+# Now board_deparse() works
+board_deparse(board)
+}
 }
