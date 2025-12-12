@@ -1,9 +1,34 @@
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata
 .Rproj.user
+*.Rproj
 .Rprofile
 .Renviron
+.env
 
-/rv
+docs/
+rv/
 rv.lock
 rproject.toml
 
 integration_testing.R
+
+.httr-oauth
+.secrets
+
+*~
+*.swp
+*.swo
+
+*.Rcheck/
+
+vignettes/*.html
+vignettes/*.md
+
+*.p8
+rsa_key.*
+odbc.ini
+odbcinst.ini
