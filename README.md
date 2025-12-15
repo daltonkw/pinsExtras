@@ -1,4 +1,4 @@
-# pinsExtras
+# pinsExtras <img src="pinsExtras_hex.png" alt="pinsExtras logo" align="right" height="139"/>
 
 > Additional board implementations for the [pins](https://pins.rstudio.com) package
 
@@ -43,7 +43,7 @@ install.packages(c("pins", "DBI", "odbc"))
 ### Install pinsExtras
 
 ``` r
-# Install from GitHub (once published)
+# Install from GitHub
 remotes::install_github("daltonkw/pinsExtras")
 
 # Or install from local source
@@ -239,20 +239,13 @@ source ~/.bashrc
 
 ### Internal Stages Only
 
-This package is designed **exclusively for Snowflake internal stages**: 
-- ✅ User stages (`@~`) 
-- ✅ Named stages (`@my_stage`) 
-- ✅ Table stages 
-- ✅ Fully qualified stages (`@database.schema.stage`)
+This package is designed **exclusively for Snowflake internal stages**: - ✅ User stages (`@~`) - ✅ Named stages (`@my_stage`) - ✅ Table stages - ✅ Fully qualified stages (`@database.schema.stage`)
 
 ### External Stages Not Supported
 
 External stages backed by cloud storage (S3, Azure Blob Storage, Google Cloud Storage) are **out of scope**.
 
-For external stages, use the native cloud board implementations in the [pins](https://pins.rstudio.com) package: 
-- **S3-backed stages** → [`board_s3()`](https://pins.rstudio.com/reference/board_s3.html) 
-- **Azure-backed stages** → [`board_azure()`](https://pins.rstudio.com/reference/board_azure.html) 
-- **GCS-backed stages** → [`board_gcs()`](https://pins.rstudio.com/reference/board_gcs.html)
+For external stages, use the native cloud board implementations in the [pins](https://pins.rstudio.com) package: - **S3-backed stages** → [`board_s3()`](https://pins.rstudio.com/reference/board_s3.html) - **Azure-backed stages** → [`board_azure()`](https://pins.rstudio.com/reference/board_azure.html) - **GCS-backed stages** → [`board_gcs()`](https://pins.rstudio.com/reference/board_gcs.html)
 
 ## Troubleshooting
 
@@ -316,9 +309,7 @@ board <- board_sf_stage(conn, stage = "@~")
 
 ## Testing
 
-The package attempts to provide comprehensive test coverage: 
-- **unit tests** (no Snowflake connection required) 
-- **integration tests** (require Snowflake credentials)
+The package attempts to provide comprehensive test coverage: - **unit tests** (no Snowflake connection required) - **integration tests** (require Snowflake credentials)
 
 Integration tests are automatically skipped unless `PINS_SF_*` environment variables are set. They test full workflows (read/write/version/delete) and clean up after themselves.
 
@@ -348,7 +339,7 @@ For general pins usage, see the [pins package documentation](https://pins.rstudi
 
 ## Contributing
 
-Contributions are welcome.  Please feel free to submit a Pull Request.
+Contributions are welcome. Please feel free to submit a Pull Request.
 
 ## License
 
@@ -356,7 +347,25 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-This package extends [pins](https://github.com/rstudio/pins-r) by Posit Software, PBC. The Snowflake stage board implementation attempts to follow the same design patterns as the cloud board implementations in the main pins package.  Any mistakes in the pinsExtras package are the author's alone.
+This package extends the [pins](https://github.com/rstudio/pins-r) package by Posit Software, PBC. The Snowflake stage board implementation follows the design patterns established by the cloud board implementations in the main pins package. Any mistakes in the pinsExtras package are the author's alone.
+
+### Citing pins
+
+If you use pinsExtras in your work, please also cite the pins package:
+
+> Silge J, Wickham H, Luraschi J (2025). *pins: Pin, Discover, and Share Resources*. R package version 1.4.1, <https://pins.rstudio.com/>.
+
+BibTeX entry:
+
+``` bibtex
+@Manual{pins,
+  title = {pins: Pin, Discover, and Share Resources},
+  author = {Julia Silge and Hadley Wickham and Javier Luraschi},
+  year = {2025},
+  note = {R package version 1.4.1},
+  url = {https://pins.rstudio.com/},
+}
+```
 
 ------------------------------------------------------------------------
 
