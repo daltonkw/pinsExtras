@@ -37,11 +37,13 @@ sf_stage_list <- function(board, dir = "") {
   }
 
   # For named stages, Snowflake prefixes paths with the stage name (e.g., "mystage/...")
- # Strip this prefix so paths are relative to the stage root
+  # Strip this prefix so paths are relative to the stage root
+  # Note: Snowflake stores unquoted identifiers as uppercase but LIST returns lowercase paths
+  # So we must use case-insensitive matching here
   stage_name <- sf_extract_stage_name(board$stage)
   stage_prefix <- paste0(stage_name, "/")
-  if (all(startsWith(df$name, stage_prefix))) {
-    df$name <- sub(paste0("^", stage_prefix), "", df$name)
+  if (all(startsWith(tolower(df$name), tolower(stage_prefix)))) {
+    df$name <- sub(paste0("^", stage_prefix), "", df$name, ignore.case = TRUE)
   }
 
   if (prefix != "") {
