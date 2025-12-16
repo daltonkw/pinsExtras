@@ -369,4 +369,4 @@ BibTeX entry:
 
 ------------------------------------------------------------------------
 
-**Note:** This is a standalone package and is not affiliated with or endorsed by Posit Software, PBC or Snowflake Inc.
+**Note:** This is a standalone package and is not affiliated with or endorsed by Posit Software, PBC or Snowflake Inc. Hex image by Nano Banana!
