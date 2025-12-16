@@ -29,6 +29,9 @@ vignettes/*.html
 vignettes/*.md
 
 *.p8
+*.pem
+*.key
 rsa_key.*
 odbc.ini
 odbcinst.ini
+.snowflake/
