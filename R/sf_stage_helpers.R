@@ -540,3 +540,72 @@ sf_stage_delete_file <- function(board, dir, file, call = rlang::caller_env()) {
   sf_stage_cmd(board, sql)
   invisible(TRUE)
 }
+
+# Remove an old, superseded version after the new one is already published.
+#
+# The new version is on the stage before this runs, so a cleanup failure is
+# not a failed write: the pin is correct and readable either way and only
+# some old payload is left behind. This function therefore never aborts and
+# never warns; it returns the versions whose removal could not be confirmed
+# so the caller can warn. The pin-scoped LIST at the end is the authority
+# for what is still present, not the sequence of REMOVEs in the loop.
+#
+#   board: the stage board the pin lives on
+#   name: the pin name whose old versions are being cleaned up
+#   versions: each old version whose directory should be removed
+sf_cleanup_old_versions <- function(board, name, versions,
+                                    call = rlang::caller_env()) {
+  # Step 0: an empty request issues no commands at all, not even the final
+  # listing, so a listing responder that would fail is never reached.
+  if (length(versions) == 0L) {
+    return(character())
+  }
+
+  # Step 1: for each version, drop the marker first, confirm it is gone, and
+  # only then delete the directory. Any failure, or a marker that is still
+  # present, stops the loop; a later version is never attempted after an
+  # earlier one fails.
+  for (v in versions) {
+    dir <- fs::path(name, v)
+    cleaned <- tryCatch({
+      sf_stage_delete_file(board, dir, "data.txt", call = call)
+      listing <- sf_stage_list(board, dir)
+      if (any(endsWith(listing$name, "/data.txt"))) {
+        FALSE
+      } else {
+        sf_stage_delete_dir(board, dir, call = call)
+        TRUE
+      }
+    }, error = function(e) NULL)
+    if (is.null(cleaned) || !cleaned) {
+      break
+    }
+  }
+
+  # Step 2: the final pin-scoped listing is the authority. If it raises, we
+  # could confirm nothing, so report every version asked about; the caller
+  # warns. Caught here, never re-raised, so a successful write stays
+  # successful.
+  final_listing <- tryCatch(
+    sf_stage_list(board, name),
+    error = function(e) NULL
+  )
+  if (is.null(final_listing)) {
+    return(versions)
+  }
+
+  # Step 3: a version is unconfirmed only if the listing still shows a name
+  # under it. Literal string operations only.
+  relative <- sf_board_relative(final_listing, sf_normalize_path(board))
+  any_left <- function(target) {
+    names <- relative$name
+    matches <- names == target | startsWith(names, paste0(target, "/"))
+    any(matches & !is.na(matches))
+  }
+  keep <- vapply(
+    paste0(name, "/", versions),
+    function(target) any_left(target),
+    logical(1)
+  )
+  versions[keep]
+}
