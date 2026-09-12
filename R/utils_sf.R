@@ -526,3 +526,114 @@ sf_resolve_version <- function(index, name, version = NULL,
     sf_abort_pin_version_missing(version, call = call)
   }
 }
+
+# Decide, purely, what a write should do to the versions already on the
+# board. Mirrors pins:::version_setup()'s decision; U11 carries it out in
+# an order that never deletes the old version before the new one lands.
+# Pure: no SQL, no filesystem, no board, no messages.
+sf_version_plan <- function(
+  index,
+  name,
+  new_version,
+  versioned = NULL,
+  board_versioned = TRUE,
+  call = rlang::caller_env()
+) {
+  published <- sf_index_versions(index, name)$version
+  n <- length(published)
+
+  # A write whose new version already exists is a no-op the caller almost
+  # certainly did not intend. upstream pins:::version_setup() compares only
+  # against versions$version[[1]], the first (oldest) row of the ascending
+  # table; we check against every published version, a strict superset, so
+  # this can never wrongly allow a duplicate. upstream's wording is kept.
+  if (new_version %in% published) {
+    cli::cli_abort(
+      c(
+        paste0(
+          "The new version {.val {new_version}} is the same as",
+          " the most recent version."
+        ),
+        "i" = paste0(
+          "Did you try to create a new version with the same",
+          " timestamp as the last version?"
+        )
+      ),
+      call = call
+    )
+  }
+
+  # With several versions already published and no caller override, pins
+  # forces versioning on (pins:::version_setup()); otherwise the per-write
+  # override, when given, wins over the board's own flag.
+  effective <- versioned %||% if (n > 1L) TRUE else board_versioned
+
+  if (n == 0L || effective) {
+    return(list(
+      version = new_version,
+      action = "create",
+      old_versions = character()
+    ))
+  }
+  if (n == 1L && !effective) {
+    return(list(
+      version = new_version,
+      action = "replace",
+      old_versions = published
+    ))
+  }
+
+  # n > 1L && !effective: an existing versioned pin cannot be rewritten
+  # without versions. Wording and class are upstream's, verbatim; note the
+  # lines carry no full stop, which is what upstream prints.
+  cli::cli_abort(
+    c(
+      "Pin is versioned, but you have requested a write without versions",
+      "i" = "To un-version a pin, you must delete it"
+    ),
+    class = "pins_pin_versioned",
+    call = call
+  )
+}
+
+# A half-finished write leaves files under the version directory with no
+# data.txt; re-writing into that directory would mix two attempts' files.
+# We therefore look at the raw pin-scoped listing, not the index, which
+# hides payload-only directories.
+sf_check_version_collision <- function(listing, name, version, prefix = "",
+                                       call = rlang::caller_env()) {
+  relative <- sf_board_relative(listing, prefix)
+  target <- paste0(name, "/", version)
+  collide <- relative$name == target |
+    startsWith(relative$name, paste0(target, "/"))
+  if (any(collide)) {
+    cli::cli_abort(
+      c(
+        "Version {.val {version}} of pin {.val {name}} already exists.",
+        "x" = "No upload was attempted.",
+        "i" = paste0(
+          "Remove it with {.code pin_version_delete()} before",
+          " writing again."
+        )
+      ),
+      class = "pinsExtras_version_collision",
+      call = call
+    )
+  }
+  invisible(TRUE)
+}
+
+# The single informational helper, mirroring pins:::pins_inform():
+# progress output the user can switch off with options(pins.quiet = TRUE).
+#
+#   ...: the cli message template, interpolated in .envir.
+#   .envir: the caller's frame, threaded through so cli can find the
+#           caller's locals; sf_inform() is a wrapper by design, so the
+#           default (parent.frame() evaluated inside cli_inform()) would
+#           look in sf_inform()'s own frame and fail.
+sf_inform <- function(..., .envir = parent.frame()) {
+  if (isTRUE(getOption("pins.quiet", FALSE))) {
+    return(invisible())
+  }
+  cli::cli_inform(..., .envir = .envir)
+}
