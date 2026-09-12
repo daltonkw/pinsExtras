@@ -105,16 +105,105 @@ sf_stage_upload <- function(board, src, dest) {
   sf_stage_cmd(board, sql)
 }
 
-sf_stage_download <- function(board, key, dest_dir) {
+sf_stage_download <- function(
+  board, key, dest_dir, call = rlang::caller_env()
+) {
+  # Transfer into a fresh directory so a stale copy can never stand in for
+  # what this call actually fetched (see 3.1).
+  tmp <- withr::local_tempdir()
   dest_dir <- fs::path_abs(fs::path_expand(dest_dir))
   fs::dir_create(dest_dir)
   target <- sf_stage_path(board, key)
-  sql <- sprintf(
-    "GET %s file://%s",
-    target,
-    fs::path(dest_dir, "")
+  result <- sf_stage_cmd(
+    board,
+    sprintf(
+      "GET %s %s",
+      sf_quote_stage_path(target),
+      sf_quote_file_uri(fs::path(tmp, ""))
+    )
   )
-  sf_stage_cmd(board, sql)
+  # Prove the transfer succeeded before returning anything.
+  sf_check_get_result(result, fs::path_file(key), key, call = call)
+  tmp_file <- fs::path(tmp, fs::path_file(key))
+  if (!fs::file_exists(tmp_file)) {
+    cli::cli_abort(
+      c(
+        "Failed to download {.path {key}}.",
+        "x" = "The downloaded file is missing from the transfer directory."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
+  out <- fs::path(dest_dir, fs::path_file(key))
+  fs::file_copy(tmp_file, out, overwrite = TRUE)
+  invisible(as.character(out))
+}
+
+# Validate a Snowflake GET response before trusting the file that landed.
+#
+#   result: the raw response row set from the GET command
+#   file: the expected file basename
+#   key: the board-relative key, used in the abort message
+sf_check_get_result <- function(result, file, key, call = rlang::caller_env()) {
+  # Column names and status are matched case-insensitively.
+  if (!is.null(result)) {
+    names(result) <- tolower(names(result))
+  }
+  if (is.null(result) || nrow(result) == 0L) {
+    cli::cli_abort(
+      c(
+        "Failed to download {.path {key}}.",
+        "x" = "Snowflake returned no download result."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
+  if (nrow(result) > 1L) {
+    rows <- nrow(result)
+    cli::cli_abort(
+      c(
+        "Failed to download {.path {key}}.",
+        "x" = "Snowflake returned {rows} results for a single-file download."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
+  if (!("file" %in% names(result)) || !("status" %in% names(result))) {
+    cli::cli_abort(
+      c(
+        "Failed to download {.path {key}}.",
+        "x" = "Snowflake's download response could not be interpreted."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
+  status <- toupper(as.character(result$status))
+  if (status != "DOWNLOADED") {
+    cli::cli_abort(
+      c(
+        "Failed to download {.path {key}}.",
+        "x" = "Snowflake reported status {.val {status}}."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
+  got <- fs::path_file(result$file[[1]])
+  if (got != file) {
+    cli::cli_abort(
+      c(
+        "Failed to download {.path {key}}.",
+        "x" = "Snowflake returned {.path {got}} instead."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
+  invisible(TRUE)
 }
 
 sf_stage_exists <- function(board, path) {

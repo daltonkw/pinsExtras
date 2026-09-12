@@ -54,12 +54,31 @@ sf_local_meta <- function(x, name, dir, url = NULL, version = NULL, ...) {
   structure(x, class = "pins_meta")
 }
 
-sf_read_meta <- function(path) {
-  path <- fs::path(path, "data.txt")
-  if (!fs::file_exists(path)) {
-    return(list(api_version = 1L))
+sf_read_meta <- function(path, call = rlang::caller_env()) {
+  file <- fs::path(path, "data.txt")
+  if (!fs::file_exists(file)) {
+    cli::cli_abort(
+      c(
+        "Can't read pin metadata.",
+        "x" = "{.path data.txt} is missing from {.path {path}}."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
   }
-  yaml <- yaml::read_yaml(path, eval.expr = FALSE)
+  # An unparseable file is an error, not a crash to be passed through.
+  yaml <- tryCatch(
+    yaml::read_yaml(file, eval.expr = FALSE),
+    error = function(c) cli::cli_abort(
+      c(
+        "Can't read pin metadata.",
+        "x" = "{.path data.txt} in {.path {path}} could not be parsed."
+      ),
+      parent = c,
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  )
   if (is.null(yaml$api_version)) {
     yaml$api_version <- 0L
     yaml$file <- yaml$path %||% yaml$file
