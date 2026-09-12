@@ -202,14 +202,33 @@ board_sf_stage <- function(
 
 #' @export
 pin_list.pins_board_sf_stage <- function(board, ...) {
-  # List all pin names (top-level directories) in the board
-  sf_children(board)
+  # Derive the published index from one board-scoped listing and hand back
+  # the pin names. The index proves publication, so a payload-only directory
+  # never appears as a pin.
+  index <- sf_board_index(board)
+  sf_index_pins(index)
+}
+
+# Build the published-pin index from a single listing.
+#
+#   board: the board object
+#   dir:   the scope for the LIST ("" for the board root, a pin name otherwise).
+# The prefix is the board's own path only. sf_stage_list() still scopes the
+# request to `dir`, but sf_published_index() strips just the board path so the
+# pin and version segments survive: scoping the strip to the pin would leave
+# only "<version>/data.txt", and the three-segment rule would reject every
+# row. A board-scoped and a pin-scoped listing are therefore read the same way.
+sf_board_index <- function(board, dir = "") {
+  listing <- sf_stage_list(board, dir)
+  sf_published_index(listing, prefix = sf_normalize_path(board))
 }
 
 #' @export
 pin_exists.pins_board_sf_stage <- function(board, name, ...) {
-  # Check if a pin exists by looking for its name in the pin list
-  name %in% sf_children(board)
+  # Answer from the index, not from the directory tree, so a half-finished
+  # upload (payloads but no data.txt) is not mistaken for a real pin.
+  index <- sf_board_index(board, name)
+  sf_index_has_pin(index, name)
 }
 
 #' @export
@@ -225,12 +244,11 @@ pin_delete.pins_board_sf_stage <- function(board, names, ...) {
 
 #' @export
 pin_versions.pins_board_sf_stage <- function(board, name, ...) {
-  # Return a tibble of all versions for a given pin
-  sf_check_pin_exists(board, name)
-  # Get all version directories for this pin
-  children <- sf_children(board, name)
-  # Parse version strings into structured data
-  sf_version_from_path(children)
+  # One pin-scoped listing, then the versions from the index. The published
+  # check aborts "Can't find pin called ..." when the pin has no version.
+  index <- sf_board_index(board, name)
+  sf_check_pin_published(index, name)
+  sf_index_versions(index, name)
 }
 
 #' @export
@@ -241,26 +259,19 @@ pin_version_delete.pins_board_sf_stage <- function(board, name, version, ...) {
 
 #' @export
 pin_meta.pins_board_sf_stage <- function(board, name, version = NULL, ...) {
-  # Verify the pin exists before attempting to read metadata
-  sf_check_pin_exists(board, name)
-
-  # Resolve version: if NULL, get the latest; otherwise validate it exists
-  version <- sf_check_pin_version(board, name, version)
+  # One pin-scoped listing, then resolve the version locally against the index
+  # we already hold. sf_resolve_version() performs the published-pin check,
+  # so there is no separate existence test and no extra listing here.
+  index <- sf_board_index(board, name)
+  version <- sf_resolve_version(index, name, version)
 
   # Metadata is always stored as data.txt in the version directory
-  metadata_key <- fs::path(name, version, "data.txt")
-
-  # Verify the metadata file exists in the stage
-  if (!sf_stage_exists(board, metadata_key)) {
-    sf_abort_pin_version_missing(version)
-  }
-
-  # Create local cache directory for this specific version
   path_version <- fs::path(board$cache, name, version)
   fs::dir_create(path_version)
 
   # Download metadata file from stage to local cache
-  sf_stage_download(board, metadata_key, dest_dir = path_version)
+  sf_stage_download(board, fs::path(name, version, "data.txt"),
+                    dest_dir = path_version)
 
   # Parse the metadata file and add local path information
   sf_local_meta(
@@ -273,18 +284,18 @@ pin_meta.pins_board_sf_stage <- function(board, name, version = NULL, ...) {
 
 #' @export
 pin_fetch.pins_board_sf_stage <- function(board, name, version = NULL, ...) {
-  # Get metadata for the pin (downloads data.txt if needed)
+  # pin_meta() downloads the metadata and issues the only metadata GET; this
+  # method then fetches each payload named in that metadata and issues one
+  # GET per file. No further listing happens.
   meta <- pin_meta(board, name, version = version)
 
   # Update cache timestamp for this pin version
   sf_cache_touch(board, meta)
 
-  # Download all data files associated with this pin
-  # meta$file contains the list of files (e.g., "data.rds", "data.csv")
+  # Download each payload file named in the metadata. Use the version pin_meta
+  # resolved (may have been NULL), not the caller's raw argument.
   for (file in meta$file) {
-    # Construct the full path in the stage: name/version/file
     key <- fs::path(name, meta$local$version, file)
-    # Download to the local cache directory for this version
     sf_stage_download(board, key, dest_dir = meta$local$dir)
   }
 

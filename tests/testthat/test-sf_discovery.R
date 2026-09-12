@@ -393,3 +393,370 @@ test_that("sf_resolve_version picks the lexically greater version on ties", {
     "20240101T000000Z-bbb"
   )
 })
+
+# ---- Read-side methods now answer from the published-pin index ----------
+
+test_that("pin_list issues one board-scoped listing and returns pin names", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_list(board)
+
+  expect_identical(rec$calls, "LIST '@~'")
+  expect_identical(out, "cars")
+})
+
+test_that("pin_list scopes the LIST to the board path on a named stage", {
+  board <- sf_mock_board(path = "team-data", stage = "@mystage")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  pins::pin_list(board)
+
+  expect_identical(rec$calls, "LIST '@mystage/team-data/'")
+})
+
+test_that("pin_list returns character(0) for a zero-row listing", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(list = sf_fixture_listing(board = board))
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_list(board)
+
+  expect_identical(rec$calls, "LIST '@~'")
+  expect_identical(out, character())
+})
+
+test_that("pin_list returns character(0) when only the manifest exists", {
+  board <- sf_mock_board(path = "team-data", stage = "@mystage")
+  rec <- sf_mock_transport(list = sf_fixture_listing("_pins.yaml",
+    board = board))
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_list(board)
+
+  expect_identical(out, character())
+})
+
+test_that("pin_exists issues one pin-scoped listing and reports membership", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_exists(board, "cars")
+
+  expect_identical(rec$calls, "LIST '@~/cars/'")
+  expect_true(out)
+})
+
+test_that("pin_exists scopes the LIST to the board path on a named stage", {
+  board <- sf_mock_board(path = "team-data", stage = "@mystage")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  pins::pin_exists(board, "cars")
+
+  expect_identical(rec$calls, "LIST '@mystage/team-data/cars/'")
+})
+
+test_that("pin_exists is false for a pin that shares only a prefix", {
+  board <- sf_mock_board(path = "team-data", stage = "@mystage")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  cars <- pins::pin_exists(board, "cars")
+  extra <- pins::pin_exists(board, "cars_extra")
+
+  expect_true(cars)
+  expect_false(extra)
+})
+
+test_that("pin_exists is false for a payload-only directory", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("orphan/", "20240101T000002Z-bbb", "/orphan.rds"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_exists(board, "orphan")
+
+  expect_false(out)
+})
+
+test_that("pin_versions lists versions ascending by created", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"),
+      paste0("cars/", "20240101T000001Z-aaa", "/data.txt"),
+      board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  versions <- pins::pin_versions(board, "cars")
+
+  expect_identical(
+    versions$version,
+    c("20240101T000001Z-aaa", "20240101T000002Z-bbb")
+  )
+})
+
+test_that("pin_versions scopes the LIST to the board path on a named stage", {
+  board <- sf_mock_board(path = "team-data", stage = "@mystage")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  pins::pin_versions(board, "cars")
+
+  expect_identical(rec$calls, "LIST '@mystage/team-data/cars/'")
+})
+
+test_that("pin_versions aborts for a payload-only directory", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("orphan/", "20240101T000002Z-bbb", "/orphan.rds"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_versions(board, "orphan"),
+    "Can't find pin called",
+    fixed = TRUE
+  )
+})
+
+test_that("pin_meta issues one listing, one GET, and resolves the newest", {
+  board <- sf_mock_board(path = "team-data", stage = "@mystage")
+  v <- "20240101T000002Z-bbb"
+  meta <- list(
+    api_version = 1L, file = "cars.rds", file_size = 12,
+    created = "20240101", pin_hash = "abc1234567", type = "rds"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(paste0("cars/", v, "/data.txt"), board = board),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_meta(board, "cars")
+
+  expect_length(grep("^LIST ", rec$calls), 1L)
+  expect_length(grep("^GET ", rec$calls), 1L)
+  expect_identical(out$local$version, v)
+  expect_identical(out$file, "cars.rds")
+})
+
+test_that("pin_meta resolves the newest version across an out-of-order list", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = "data.txt", file_size = 1,
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"),
+      paste0("cars/", "20240101T000001Z-aaa", "/data.txt"),
+      board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_meta(board, "cars")
+
+  expect_identical(out$local$version, "20240101T000002Z-bbb")
+})
+
+test_that("pin_meta picks the lexically last version on equal timestamps", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = "data.txt", file_size = 1,
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  v <- "20240101T000000Z"
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", paste0(v, "-aaa"), "/data.txt"),
+      paste0("cars/", paste0(v, "-bbb"), "/data.txt"),
+      board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_meta(board, "cars")
+
+  expect_identical(out$local$version, paste0(v, "-bbb"))
+})
+
+test_that("pin_meta aborts when the requested version is unknown", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars", version = "nope"),
+    "Can't find version",
+    fixed = TRUE
+  )
+})
+
+test_that("pin_meta aborts when the pin has no published version", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "missing"),
+    "Can't find pin called",
+    fixed = TRUE
+  )
+})
+
+test_that("pin_meta propagates a malformed-YAML download failure", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    ),
+    get = sf_mock_get_files("data.txt" = "not: valid: yaml: [")
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars"),
+    class = "pinsExtras_download_failed"
+  )
+})
+
+test_that("a listing that raises propagates unchanged instead of an abort", {
+  board <- sf_mock_board(stage = "@~")
+  rec <- sf_mock_transport(list = function(sql, calls) stop("boom"))
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(pins::pin_list(board), "boom")
+})
+
+test_that("pin_meta is case-insensitive when the driver upper-cases columns", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = "cars.rds", file_size = 12,
+    created = "20240101", pin_hash = "abc1234567", type = "rds"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      paste0("cars/", "20240101T000002Z-bbb", "/data.txt"), board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta)),
+    casing = "upper"
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_meta(board, "cars")
+
+  expect_identical(out$local$version, "20240101T000002Z-bbb")
+})
+
+test_that("pin_fetch issues one listing, two GETs, and fetches the payload", {
+  board <- sf_mock_board(path = "team-data", stage = "@mystage")
+  v <- "20240101T000002Z-bbb"
+  meta <- list(
+    api_version = 1L, file = "cars.rds", file_size = 12,
+    created = "20240101", pin_hash = "abc1234567", type = "rds"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(paste0("cars/", v, "/data.txt"), board = board),
+    get = sf_mock_get_files(
+      "data.txt" = yaml::as.yaml(meta),
+      "cars.rds" = "payload bytes"
+    )
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_fetch(board, "cars")
+
+  expect_length(grep("^LIST ", rec$calls), 1L)
+  expect_length(grep("^GET ", rec$calls), 2L)
+  expect_identical(out$local$version, v)
+  expect_identical(out$file, "cars.rds")
+  expect_true(fs::file_exists(fs::path(out$local$dir, "data.txt")))
+  expect_true(fs::file_exists(fs::path(out$local$dir, "cars.rds")))
+})
