@@ -15,12 +15,124 @@ sf_check_pin_exists <- function(board, name, call = rlang::caller_env()) {
 }
 
 sf_check_pin_name <- function(name, call = rlang::caller_env()) {
+  # Not a string is first: more than one condition can be true at once, and
+  # this order is the contract.
   if (!rlang::is_string(name)) {
-    cli::cli_abort("`name` must be a string", call = call)
+    cli::cli_abort("{.arg name} must be a string", call = call)
   }
+  if (name == "") {
+    cli::cli_abort("{.arg name} must not be empty", call = call)
+  }
+  # "data.txt" is reserved wherever it appears; path_file() strips any
+  # directory first, so "a/data.txt" is reported as the reserved name.
   if (fs::path_file(name) == "data.txt") {
-    cli::cli_abort("Can't pin file called `data.txt`", call = call)
+    cli::cli_abort("Can't pin file called {.code data.txt}", call = call)
   }
+  # A name that can escape its directory, or is exactly ".", is rejected.
+  has_sep <- grepl("/", name, fixed = TRUE) ||
+    grepl("\\", name, fixed = TRUE) ||
+    grepl("*", name, fixed = TRUE) ||
+    grepl("?", name, fixed = TRUE) ||
+    grepl("..", name, fixed = TRUE) ||
+    name == "."
+  if (has_sep) {
+    cli::cli_abort(
+      c(
+        "Invalid pin name {.val {name}}.",
+        "x" = paste0(
+          "Pin names cannot contain {.code /}, {.code \\},",
+          " {.code *}, {.code ?} or {.code ..}."
+        )
+      ),
+      call = call
+    )
+  }
+  invisible(TRUE)
+}
+
+# Validate the whole local upload set before the first PUT moves a byte,
+# so a partial failure cannot leave files on the stage a later reader
+# cannot make sense of. Every abort shares a first line, a class and a
+# call; the six checks are written out inline rather than through a
+# wrapper so cli can find the check's own locals.
+sf_check_upload_set <- function(
+  name, paths, metadata, call = rlang::caller_env()
+) {
+  if (length(paths) == 0L) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "The upload set is empty."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  absent <- paths[!fs::file_exists(paths)]
+  if (length(absent) > 0L) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "These local files do not exist: {.path {absent}}."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  basenames <- fs::path_file(paths)
+  if (any(basenames == "data.txt")) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "A pinned file cannot be named {.path data.txt}."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  bad <- basenames == "" |
+    basenames == "." |
+    grepl("/", basenames, fixed = TRUE) |
+    grepl("\\", basenames, fixed = TRUE) |
+    grepl("*", basenames, fixed = TRUE) |
+    grepl("?", basenames, fixed = TRUE) |
+    grepl("..", basenames, fixed = TRUE)
+  if (any(bad)) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "These file names are not allowed: {.path {basenames[bad]}}."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  dupes <- unique(basenames[duplicated(basenames)])
+  if (length(dupes) > 0L) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "Duplicate file names in the upload set: {.path {dupes}}."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  meta_files <- as.character(metadata$file)
+  if (!setequal(meta_files, basenames)) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = paste0(
+          "Metadata lists {.path {meta_files}} but the upload set",
+          " contains {.path {basenames}}."
+        )
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  invisible(TRUE)
 }
 
 sf_check_pin_version <- function(board, name, version, call = rlang::caller_env()) {
