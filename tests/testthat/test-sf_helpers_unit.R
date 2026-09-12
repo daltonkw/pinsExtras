@@ -186,3 +186,115 @@ test_that("sf_extract_stage_name extracts stage name correctly", {
   # Without @ prefix (shouldn't happen but handle gracefully)
   expect_equal(pinsExtras:::sf_extract_stage_name("mystage"), "mystage")
 })
+
+test_that("sf_quote_sql_literal wraps text in single quotes", {
+  expect_identical(pinsExtras:::sf_quote_sql_literal("abc"), "'abc'")
+})
+
+test_that("sf_quote_sql_literal escapes a single quote with a backslash", {
+  expect_identical(
+    pinsExtras:::sf_quote_sql_literal("bob's data"),
+    "'bob\\'s data'"
+  )
+})
+
+test_that("sf_quote_sql_literal doubles each backslash", {
+  expect_identical(pinsExtras:::sf_quote_sql_literal("a\\b"), "'a\\\\b'")
+})
+
+test_that("sf_quote_sql_literal quotes an empty string", {
+  expect_identical(pinsExtras:::sf_quote_sql_literal(""), "''")
+})
+
+test_that("sf_quote_stage_path quotes a stage location verbatim", {
+  expect_identical(pinsExtras:::sf_quote_stage_path("@~"), "'@~'")
+  expect_identical(
+    pinsExtras:::sf_quote_stage_path("@~/team-data/cars/"),
+    "'@~/team-data/cars/'"
+  )
+  expect_identical(
+    pinsExtras:::sf_quote_stage_path("@db.schema.stage/x"),
+    "'@db.schema.stage/x'"
+  )
+})
+
+test_that("sf_quote_file_uri prefixes file:// then quotes", {
+  expect_identical(
+    pinsExtras:::sf_quote_file_uri("/tmp/x/data.txt"),
+    "'file:///tmp/x/data.txt'"
+  )
+  expect_identical(
+    pinsExtras:::sf_quote_file_uri("/tmp/o'brien/data.txt"),
+    "'file:///tmp/o\\'brien/data.txt'"
+  )
+})
+
+test_that("sf_escape_regex escapes a dot", {
+  expect_identical(pinsExtras:::sf_escape_regex("data.txt"), "data\\.txt")
+})
+
+test_that("sf_escape_regex escapes a hyphen", {
+  expect_identical(pinsExtras:::sf_escape_regex("a-b"), "a\\-b")
+})
+
+test_that("sf_escape_regex leaves a plain string untouched", {
+  expect_identical(pinsExtras:::sf_escape_regex("plain"), "plain")
+})
+
+test_that("sf_escape_regex escapes a backslash", {
+  expect_identical(pinsExtras:::sf_escape_regex("a\\b"), "a\\\\b")
+})
+
+test_that("sf_escape_regex returns empty for empty input", {
+  expect_identical(pinsExtras:::sf_escape_regex(""), "")
+})
+
+test_that("sf_escape_regex does not escape a slash", {
+  expect_identical(pinsExtras:::sf_escape_regex("a/b"), "a/b")
+})
+
+test_that("sf_escape_regex is vectorised over its input", {
+  expect_identical(
+    pinsExtras:::sf_escape_regex(c("a.b", "c")),
+    c("a\\.b", "c")
+  )
+})
+
+test_that("sf_escape_regex returns character(0) for empty input", {
+  expect_identical(pinsExtras:::sf_escape_regex(character(0)), character(0))
+})
+
+test_that("sf_remove_pattern builds the pattern for a directory and file", {
+  expect_identical(
+    pinsExtras:::sf_remove_pattern("cars/20240101T000000Z-abc12", "data.txt"),
+    "^(.*/)?cars/20240101T000000Z\\-abc12/data\\.txt$"
+  )
+  expect_identical(
+    pinsExtras:::sf_remove_pattern("", "_pins.yaml"),
+    "^(.*/)?_pins\\.yaml$"
+  )
+})
+
+test_that("sf_remove_pattern's grepl match is TRUE for the one file", {
+  pat <- pinsExtras:::sf_remove_pattern(
+    "cars/20240101T000000Z-abc12",
+    "data.txt"
+  )
+  expect_true(grepl(pat, "mystage/cars/20240101T000000Z-abc12/data.txt"))
+  expect_true(grepl(pat, "cars/20240101T000000Z-abc12/data.txt"))
+  expect_true(
+    grepl(pat, "mystage/team-data/cars/20240101T000000Z-abc12/data.txt")
+  )
+})
+
+test_that("sf_remove_pattern's grepl match is FALSE for everything else", {
+  pat <- pinsExtras:::sf_remove_pattern(
+    "cars/20240101T000000Z-abc12",
+    "data.txt"
+  )
+  expect_false(grepl(pat, "mystage/cars/20240101T000000Z-abc12/data.txt.bak"))
+  expect_false(grepl(pat, "mystage/carsX20240101T000000Z-abc12/data.txt"))
+  expect_false(
+    grepl(pat, "mystage/cars_extra/20240101T000000Z-abc12/data.txt")
+  )
+})

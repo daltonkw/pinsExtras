@@ -211,3 +211,66 @@ sf_check_connection <- function(board, call = rlang::caller_env()) {
 
   invisible(NULL)
 }
+
+# Escape and quote text for a Snowflake string literal
+#
+# Snowflake treats backslash as an escape character inside string literals,
+# so escape backslashes before single quotes to avoid double-escaping.
+sf_quote_sql_literal <- function(x) {
+  x <- gsub("\\", "\\\\", x, fixed = TRUE)
+  x <- gsub("'", "\\'", x, fixed = TRUE)
+  paste0("'", x, "'")
+}
+
+# Build a quoted stage location for SQL
+#
+# Single construction point for a stage location: it is just the shared
+# literal quoting applied to the stage path.
+sf_quote_stage_path <- function(path) {
+  sf_quote_sql_literal(path)
+}
+
+# Build a quoted local file URI for SQL
+#
+# Single construction point for a local file URI: prefix the path with
+# "file://" and then quote it like any other stage location.
+sf_quote_file_uri <- function(path) {
+  sf_quote_sql_literal(paste0("file://", path))
+}
+
+# Escape regex metacharacters so a string matches literally
+#
+# The one place in the package that builds a regular expression: escape
+# every metacharacter in the given set. A literal, character-by-character
+# approach avoids POSIX collating-element traps in bracket classes.
+sf_escape_regex <- function(x) {
+  metachars <- c(
+    ".", "\\", "+", "*", "?", "[", "^", "]", "$",
+    ")", "(", "{", "}", "=", "!", "<", ">", "|", ":", "-"
+  )
+  out <- vapply(x, function(s) {
+    if (nchar(s) == 0) {
+      return("")
+    }
+    chars <- strsplit(s, "", fixed = TRUE)[[1]]
+    escaped <- vapply(chars, function(ch) {
+      if (ch %in% metachars) {
+        paste0("\\", ch)
+      } else {
+        ch
+      }
+    }, character(1))
+    paste(escaped, collapse = "")
+  }, character(1))
+  # vapply(character(0)) yields a names attribute of character(0), not NULL
+  structure(out, names = NULL)
+}
+
+# Build a REMOVE ... PATTERN expression for Snowflake. Anchor the escaped
+# board-relative path at both ends with an optional leading-path group so it
+# matches the full staged path (with or without a named-stage prefix) and
+# deletes exactly one file.
+sf_remove_pattern <- function(dir, file) {
+  tail <- if (dir == "") file else paste0(dir, "/", file)
+  paste0("^(.*/)?", sf_escape_regex(tail), "$")
+}
