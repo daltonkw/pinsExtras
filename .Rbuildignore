@@ -6,3 +6,15 @@
 ^LICENSE\.md$
 ^\.cache/
 ^scripts/
+^rv/
+^rv\.lock$
+^rproject\.toml$
+^\.Renviron$
+^\.Rprofile$
+^integration_testing\.R$
+^pinsExtras_hex.*\.png$
+^\.git$
+^\.gitignore$
+^\.posit$
+^\.claude$
+^\.github$

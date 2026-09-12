@@ -35,3 +35,4 @@ rsa_key.*
 odbc.ini
 odbcinst.ini
 .snowflake/
+.posit/
