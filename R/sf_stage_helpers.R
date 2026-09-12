@@ -81,7 +81,11 @@ sf_extract_stage_name <- function(stage) {
   parts[[length(parts)]]
 }
 
-sf_stage_upload <- function(board, src, dest) {
+sf_stage_build_put <- function(board, src, dest, overwrite) {
+  # One construction point for the PUT verb, shared by sf_stage_upload() and
+  # sf_stage_upload_meta(). OVERWRITE=FALSE is the default: a version
+  # directory that already holds a failed attempt's files must never be
+  # silently replaced, which would mix two attempts together.
   src <- normalizePath(src, winslash = "/", mustWork = TRUE)
   dest_dir <- fs::path_dir(dest)
   if (dest_dir == ".") {
@@ -96,13 +100,260 @@ sf_stage_upload <- function(board, src, dest) {
     fs::file_copy(src, upload_src, overwrite = TRUE)
   }
 
-  target <- sf_stage_path(board, dest_dir)
-  sql <- sprintf(
-    "PUT file://%s %s AUTO_COMPRESS=FALSE OVERWRITE=TRUE",
-    upload_src,
-    target
+  sprintf(
+    "PUT %s %s AUTO_COMPRESS=FALSE OVERWRITE=%s",
+    sf_quote_file_uri(upload_src),
+    sf_quote_stage_path(sf_stage_path(board, dest_dir)),
+    if (overwrite) "TRUE" else "FALSE"
   )
-  sf_stage_cmd(board, sql)
+}
+
+sf_stage_upload <- function(board, src, dest, overwrite = FALSE,
+                            call = rlang::caller_env()) {
+  sql <- sf_stage_build_put(board, src, dest, overwrite)
+  result <- sf_stage_cmd(board, sql)
+  sf_check_put_result(result, fs::path_file(dest), dest, call = call)
+  invisible(TRUE)
+}
+
+sf_stage_upload_meta <- function(board, src, dest, call = rlang::caller_env()) {
+  # data.txt is the publication marker; it must never overwrite either, so
+  # OVERWRITE is fixed to FALSE regardless of the caller's intent.
+  sql <- sf_stage_build_put(board, src, dest, overwrite = FALSE)
+  result <- sf_stage_cmd(board, sql)
+  sf_check_meta_put_result(result, fs::path_file(dest), dest, call = call)
+  invisible(TRUE)
+}
+
+# Validate a Snowflake PUT response before trusting the file that landed.
+#
+#   result: the raw response row set from the PUT command
+#   file: the expected file basename
+#   key: the board-relative key, used in the abort message
+sf_check_put_result <- function(result, file, key, call = rlang::caller_env()) {
+  # Column names and status are matched case-insensitively.
+  if (!is.null(result)) {
+    names(result) <- tolower(names(result))
+  }
+  if (is.null(result) || nrow(result) == 0L) {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake returned no upload result."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  if (nrow(result) > 1L) {
+    rows <- nrow(result)
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake returned {rows} results for a single-file upload."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  # Use a names() membership test, never "$": "$" partial-matches, so a
+  # response carrying "target_size" but no "target" would slip past a
+  # is.null(result$target) check and die on an unclassed error below.
+  if (
+    !("target" %in% names(result)) ||
+      !("status" %in% names(result))
+  ) {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake's upload response could not be interpreted."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  status <- toupper(as.character(result$status))
+  # An NA status throws on "!=" rather than branching, so check it here
+  # before any comparison against "UPLOADED" or "SKIPPED".
+  if (is.na(status)) {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake's upload response could not be interpreted."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  if (status == "SKIPPED") {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake skipped the upload, so the file was already present."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  if (status != "UPLOADED") {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake reported status {.val {status}}."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  got <- fs::path_file(result$target[[1]])
+  if (got != file) {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake returned {.path {got}} instead."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  invisible(TRUE)
+}
+
+# Validate the PUT response for the metadata (data.txt) upload.
+#
+# data.txt is the publication marker: whether it landed decides whether the
+# version is visible to every reader. So an UNINTERPRETABLE response is
+# treated as publication_uncertain (the caller must stop and inspect), while
+# a clear, interpretable FAILURE (SKIPPED, another status, wrong target)
+# is just an upload failure. This mirrors sf_check_put_result() but splits
+# its aborts across two classes. The split is what lets U11 avoid deleting
+# the previous version when we cannot tell whether data.txt actually landed.
+#
+#   result: the raw response row set from the PUT command
+#   file: the expected file basename
+#   key: the board-relative key, used in the abort message
+sf_check_meta_put_result <- function(
+  result,
+  file,
+  key,
+  call = rlang::caller_env()
+) {
+  # Column names and status are matched case-insensitively.
+  if (!is.null(result)) {
+    names(result) <- tolower(names(result))
+  }
+  # Checks 1-3: no result, several results, or a missing/NA column means we
+  # cannot tell whether the metadata landed. This is the uncertain case.
+  if (is.null(result) || nrow(result) == 0L) {
+    cli::cli_abort(
+      c(
+        "Publication of {.path {key}} is uncertain.",
+        "x" = paste0(
+          "Snowflake's response to the metadata upload ",
+          "could not be interpreted."
+        ),
+        "i" = paste0(
+          "The version may or may not be published; ",
+          "inspect it before writing again."
+        ),
+        "i" = "Nothing was deleted."
+      ),
+      class = "pinsExtras_publication_uncertain",
+      call = call
+    )
+  }
+  if (nrow(result) > 1L) {
+    cli::cli_abort(
+      c(
+        "Publication of {.path {key}} is uncertain.",
+        "x" = paste0(
+          "Snowflake's response to the metadata upload ",
+          "could not be interpreted."
+        ),
+        "i" = paste0(
+          "The version may or may not be published; ",
+          "inspect it before writing again."
+        ),
+        "i" = "Nothing was deleted."
+      ),
+      class = "pinsExtras_publication_uncertain",
+      call = call
+    )
+  }
+  if (
+    !("target" %in% names(result)) ||
+      !("status" %in% names(result))
+  ) {
+    cli::cli_abort(
+      c(
+        "Publication of {.path {key}} is uncertain.",
+        "x" = paste0(
+          "Snowflake's response to the metadata upload ",
+          "could not be interpreted."
+        ),
+        "i" = paste0(
+          "The version may or may not be published; ",
+          "inspect it before writing again."
+        ),
+        "i" = "Nothing was deleted."
+      ),
+      class = "pinsExtras_publication_uncertain",
+      call = call
+    )
+  }
+  status <- toupper(as.character(result$status))
+  if (is.na(status)) {
+    cli::cli_abort(
+      c(
+        "Publication of {.path {key}} is uncertain.",
+        "x" = paste0(
+          "Snowflake's response to the metadata upload ",
+          "could not be interpreted."
+        ),
+        "i" = paste0(
+          "The version may or may not be published; ",
+          "inspect it before writing again."
+        ),
+        "i" = "Nothing was deleted."
+      ),
+      class = "pinsExtras_publication_uncertain",
+      call = call
+    )
+  }
+  # From here the response is interpretable. A clear failure aborts as a
+  # normal upload failure, reusing sf_check_put_result()'s wording.
+  if (status == "SKIPPED") {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake skipped the upload, so the file was already present."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  if (status != "UPLOADED") {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake reported status {.val {status}}."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  got <- fs::path_file(result$target[[1]])
+  if (got != file) {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake returned {.path {got}} instead."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  invisible(TRUE)
 }
 
 sf_stage_download <- function(
