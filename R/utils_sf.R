@@ -275,3 +275,123 @@ sf_remove_pattern <- function(dir, file) {
   tail <- if (dir == "") file else paste0(dir, "/", file)
   paste0("^(.*/)?", sf_escape_regex(tail), "$")
 }
+
+# Strip the board path from a listing so names are board-relative.
+#
+# sf_stage_list() returns stage-root-relative names (with the board's path
+# in front); every index rule below is written against board-relative names.
+# Literal string operations only -- prefix is a user board path, never a
+# regex.
+sf_board_relative <- function(listing, prefix = "") {
+  if (prefix == "") {
+    return(listing)
+  }
+  drop <- paste0(prefix, "/")
+  keep <- listing$name == prefix | startsWith(listing$name, drop)
+  out <- listing[keep, , drop = FALSE]
+  out$name <- substr(out$name, nchar(drop) + 1L, nchar(out$name))
+  out
+}
+
+# Build the published-pin index from an already-fetched listing.
+#
+# A version counts as published only when its data.txt is present, so the
+# three-segment rule below (<pin>/<version>/data.txt) is the proof of
+# publication. Returns exactly the name and version columns.
+sf_published_index <- function(listing, prefix = "") {
+  boarded <- sf_board_relative(listing, prefix)
+  names <- boarded$name
+
+  pieces <- strsplit(names, "/", fixed = TRUE)
+  n_seg <- lengths(pieces)
+  third <- vapply(
+    pieces,
+    function(p) if (length(p) == 3L) p[[3L]] else NA_character_,
+    character(1)
+  )
+  keep <- n_seg == 3L & third == "data.txt"
+
+  kept_names <- vapply(
+    pieces,
+    function(p) if (length(p) == 3L) p[[1L]] else NA_character_,
+    character(1)
+  )[keep]
+  kept_versions <- vapply(
+    pieces,
+    function(p) if (length(p) == 3L) p[[2L]] else NA_character_,
+    character(1)
+  )[keep]
+
+  # A row is published only when it parsed to a real timestamp AND a hash.
+  # Checking hash alone is not enough: "bogus-abc12" has two "-" pieces, so
+  # sf_version_from_path() sets hash but leaves created = NA.
+  parsed <- sf_version_from_path(kept_versions)
+  ok <- !is.na(parsed$created) & !is.na(parsed$hash)
+  kept_names <- kept_names[ok]
+  parsed <- parsed[ok, , drop = FALSE]
+
+  # Deduplicate on the (pin, version) pair, keeping the first seen.
+  dup <- duplicated(
+    data.frame(name = kept_names, version = parsed$version)
+  )
+  kept_names <- kept_names[!dup]
+  parsed <- parsed[!dup, , drop = FALSE]
+
+  index <- tibble::tibble(
+    name = kept_names,
+    version = parsed$version,
+    created = parsed$created
+  )
+  ord <- order(index$name, index$created, index$version)
+  tibble::tibble(
+    name = index$name[ord],
+    version = index$version[ord]
+  )
+}
+
+# The pin names that have at least one published version, in ascending order.
+# The index is already sorted by name, so unique() needs no re-sort.
+sf_index_pins <- function(index) {
+  unique(index$name)
+}
+
+# Whether a single pin has any published version.
+sf_index_has_pin <- function(index, name) {
+  name %in% index$name
+}
+
+# That pin's versions, in index order, with parsed created and hash.
+sf_index_versions <- function(index, name) {
+  versions <- index[index$name == name, , drop = FALSE]
+  sf_version_from_path(versions$version)
+}
+
+# Confirm a pin is published. Mirrors pins' "Can't find pin called ..." so
+# existing callers and tests keep working.
+sf_check_pin_published <- function(index, name, call = rlang::caller_env()) {
+  if (!sf_index_has_pin(index, name)) {
+    cli::cli_abort("Can't find pin called {.val {name}}", call = call)
+  }
+  invisible(TRUE)
+}
+
+# Resolve the version to use for a pin, matching pins:::check_pin_version()
+# for the NULL case (it takes the last version returned by pin_versions()).
+sf_resolve_version <- function(index, name, version = NULL,
+                               call = rlang::caller_env()) {
+  sf_check_pin_published(index, name, call = call)
+
+  versions <- sf_index_versions(index, name)$version
+
+  if (is.null(version)) {
+    return(versions[[length(versions)]])
+  }
+  if (!rlang::is_string(version)) {
+    cli::cli_abort("{.arg version} must be a string", call = call)
+  }
+  if (version %in% versions) {
+    version
+  } else {
+    sf_abort_pin_version_missing(version, call = call)
+  }
+}
