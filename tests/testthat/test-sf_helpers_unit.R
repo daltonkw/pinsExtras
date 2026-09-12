@@ -233,8 +233,8 @@ test_that("sf_escape_regex escapes a dot", {
   expect_identical(pinsExtras:::sf_escape_regex("data.txt"), "data\\.txt")
 })
 
-test_that("sf_escape_regex escapes a hyphen", {
-  expect_identical(pinsExtras:::sf_escape_regex("a-b"), "a\\-b")
+test_that("sf_escape_regex does not escape a hyphen", {
+  expect_identical(pinsExtras:::sf_escape_regex("a-b"), "a-b")
 })
 
 test_that("sf_escape_regex leaves a plain string untouched", {
@@ -267,7 +267,7 @@ test_that("sf_escape_regex returns character(0) for empty input", {
 test_that("sf_remove_pattern builds the pattern for a directory and file", {
   expect_identical(
     pinsExtras:::sf_remove_pattern("cars/20240101T000000Z-abc12", "data.txt"),
-    "^(.*/)?cars/20240101T000000Z\\-abc12/data\\.txt$"
+    "^(.*/)?cars/20240101T000000Z-abc12/data\\.txt$"
   )
   expect_identical(
     pinsExtras:::sf_remove_pattern("", "_pins.yaml"),
@@ -296,5 +296,18 @@ test_that("sf_remove_pattern's grepl match is FALSE for everything else", {
   expect_false(grepl(pat, "mystage/carsX20240101T000000Z-abc12/data.txt"))
   expect_false(
     grepl(pat, "mystage/cars_extra/20240101T000000Z-abc12/data.txt")
+  )
+})
+
+test_that("sf_escape_regex escapes exactly the 14 Java metacharacters", {
+  # Each Java metacharacter, on its own, comes back escaped with a single
+  # leading backslash...
+  java <- c("\\", "^", "$", ".", "|", "?", "*", "+",
+    "(", ")", "[", "]", "{", "}")
+  expect_identical(pinsExtras:::sf_escape_regex(java), paste0("\\", java))
+  # ... while every character Java does not treat as special is untouched.
+  expect_identical(
+    pinsExtras:::sf_escape_regex("a=b!c<d>e:f-g"),
+    "a=b!c<d>e:f-g"
   )
 })

@@ -240,13 +240,14 @@ sf_quote_file_uri <- function(path) {
 
 # Escape regex metacharacters so a string matches literally
 #
-# The one place in the package that builds a regular expression: escape
-# every metacharacter in the given set. A literal, character-by-character
-# approach avoids POSIX collating-element traps in bracket classes.
+# The one place in the package that builds a regular expression. Escape
+# exactly the 14 characters Java treats as special, because that is the
+# engine Snowflake uses for REMOVE ... PATTERN; matching R and Java here is
+# what lets the same pattern match literally in both.
 sf_escape_regex <- function(x) {
   metachars <- c(
-    ".", "\\", "+", "*", "?", "[", "^", "]", "$",
-    ")", "(", "{", "}", "=", "!", "<", ">", "|", ":", "-"
+    "\\", "^", "$", ".", "|", "?", "*", "+",
+    "(", ")", "[", "]", "{", "}"
   )
   out <- vapply(x, function(s) {
     if (nchar(s) == 0) {
