@@ -480,3 +480,63 @@ sf_children <- function(board, dir = "") {
   pieces <- strsplit(rel, "/")
   unique(purrr::map_chr(pieces, ~ .x[[1]]))
 }
+
+# Delete a directory and everything under it from the stage.
+#
+# The only difference from sf_stage_delete() is the trailing slash: it
+# scopes the REMOVE to the directory. Without it Snowflake matches by
+# prefix and "cars" would also remove a sibling named "cars_extra".
+sf_stage_delete_dir <- function(board, dir, call = rlang::caller_env()) {
+  # Guard against the stage root, not the board root: a board with a path
+  # ("team-data") is allowed to delete that whole path with dir = "".
+  if (
+    !is.character(dir) || length(dir) != 1L || is.na(dir) ||
+      sf_normalize_path(board, dir) == ""
+  ) {
+    cli::cli_abort(
+      c(
+        "Refusing to delete the whole stage.",
+        "x" = "{.arg dir} must name a directory inside the board."
+      ),
+      class = "pinsExtras_invalid_delete_target",
+      call = call
+    )
+  }
+  sql <- sprintf(
+    "REMOVE %s",
+    sf_quote_stage_path(paste0(sf_stage_path(board, dir), "/"))
+  )
+  sf_stage_cmd(board, sql)
+  invisible(TRUE)
+}
+
+# Delete exactly one file from the stage, and nothing else.
+#
+# A bare prefix is again too broad, so in addition to the trailing slash
+# this anchors a PATTERN that matches only the named file. Because Snowflake
+# applies the PATTERN to the full staged path, it is built from the
+# board-relative directory: sf_remove_pattern() prefixes "^(.*/)?" to absorb
+# whatever stage-name prefix the full path carries.
+sf_stage_delete_file <- function(board, dir, file, call = rlang::caller_env()) {
+  # dir is intentionally not guarded here: deleting one named file from the
+  # board root is how the manifest is removed.
+  if (
+    !is.character(file) || length(file) != 1L || is.na(file) ||
+      file == "" || grepl("/", file, fixed = TRUE)
+  ) {
+    cli::cli_abort(
+      "{.arg file} must be a single file name",
+      class = "pinsExtras_invalid_delete_target",
+      call = call
+    )
+  }
+  sql <- sprintf(
+    "REMOVE %s PATTERN = %s",
+    sf_quote_stage_path(paste0(sf_stage_path(board, dir), "/")),
+    sf_quote_sql_literal(
+      sf_remove_pattern(sf_normalize_path(board, dir), file)
+    )
+  )
+  sf_stage_cmd(board, sql)
+  invisible(TRUE)
+}
