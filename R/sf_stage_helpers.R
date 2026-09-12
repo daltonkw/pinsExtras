@@ -29,8 +29,21 @@ sf_stage_cmd <- function(board, sql) {
 }
 
 sf_stage_list <- function(board, dir = "") {
+  # Scope the LIST to the requested directory. Snowflake matches by path
+  # prefix, so include a trailing slash whenever the prefix is non-empty to
+  # keep "cars" from also matching a sibling named "cars_extra".
   prefix <- sf_normalize_path(board, dir)
-  df <- sf_stage_cmd(board, sprintf("LIST %s", board$stage))
+  if (prefix == "") {
+    target <- board$stage
+  } else {
+    target <- paste0(board$stage, "/", prefix, "/")
+  }
+  df <- sf_stage_cmd(board, sprintf("LIST %s", sf_quote_stage_path(target)))
+
+  # A driver that returns upper-case columns must behave identically to one
+  # that returns lower-case: normalise the column names before use. Do this
+  # before the zero-row return so an empty response keeps its names too.
+  names(df) <- tolower(names(df))
 
   if (nrow(df) == 0) {
     return(df)
@@ -43,7 +56,7 @@ sf_stage_list <- function(board, dir = "") {
   stage_name <- sf_extract_stage_name(board$stage)
   stage_prefix <- paste0(stage_name, "/")
   if (all(startsWith(tolower(df$name), tolower(stage_prefix)))) {
-    df$name <- sub(paste0("^", stage_prefix), "", df$name, ignore.case = TRUE)
+    df$name <- substr(df$name, nchar(stage_prefix) + 1L, nchar(df$name))
   }
 
   if (prefix != "") {
