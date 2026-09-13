@@ -316,32 +316,79 @@ pin_store.pins_board_sf_stage <- function(
   # Ensure any additional arguments are actually used
   rlang::check_dots_used()
 
-  # Validate pin name (e.g., can't be "data.txt")
+  # Validate pin name and the whole local upload set before a single PUT
+  # moves a byte, so nothing is sent to the stage on bad input.
   sf_check_pin_name(name)
+  sf_check_upload_set(name, paths, metadata)
 
-  # Determine version string and handle versioning logic
-  # If versioned=FALSE and pin exists, this deletes the old version
-  version <- sf_version_setup(
-    board,
+  # Resolve the new version and do exactly one pin-scoped listing. Both the
+  # plan below and the collision check read the same listing, so neither
+  # lists again. A published duplicate is caught by sf_version_plan(), an
+  # incomplete-directory collision by sf_check_version_collision(); both
+  # happen before any PUT, and the first is the upstream "same as the most
+  # recent version" behaviour.
+  version <- sf_version_name(metadata)
+  prefix  <- sf_normalize_path(board)
+  listing <- sf_stage_list(board, name)
+  index   <- sf_published_index(listing, prefix = prefix)
+  plan    <- sf_version_plan(
+    index,
     name,
-    sf_version_name(metadata),  # Generate version from timestamp + hash
-    versioned = versioned
+    version,
+    versioned = versioned,
+    board_versioned = board$versioned
   )
+  sf_check_version_collision(listing, name, version, prefix = prefix)
 
-  # All files for this pin version go in: name/version/
+  # Progress output the user can silence with options(pins.quiet = TRUE).
+  if (plan$action == "create") {
+    sf_inform("Creating new version {.val {version}}")
+  } else {
+    sf_inform(
+      "Replacing version {.val {plan$old_versions}} with {.val {version}}"
+    )
+  }
+
+  # Upload each payload keyed as name/version/filename, in the order given.
   version_dir <- fs::path(name, version)
-
-  # Upload metadata file (data.txt) first
-  # Write to temporary file then upload to stage
-  tmp_meta <- withr::local_tempfile()
-  yaml::write_yaml(metadata, tmp_meta)
-  sf_stage_upload(board, src = tmp_meta, dest = fs::path(version_dir, "data.txt"))
-
-  # Upload all data files (e.g., data.rds, data.csv, etc.)
   for (path in paths) {
-    # Preserve original filename in the stage
     dest <- fs::path(version_dir, fs::path_file(path))
     sf_stage_upload(board, src = path, dest = dest)
+  }
+
+  # data.txt is ALWAYS LAST and goes through the metadata upload: an
+  # uninterpretable metadata response therefore becomes publication_
+  # uncertain rather than a plain failure, which is what lets the caller
+  # skip cleanup when it cannot tell whether the version published.
+  tmp_meta <- withr::local_tempfile()
+  yaml::write_yaml(metadata, tmp_meta)
+  sf_stage_upload_meta(
+    board,
+    src = tmp_meta,
+    dest = fs::path(version_dir, "data.txt")
+  )
+
+  # Cleanup only for replace, only over the old versions, never touching the
+  # new version. A cleanup failure must not fail an otherwise successful
+  # write, so it warns instead of aborting.
+  if (plan$action == "replace") {
+    remaining <- sf_cleanup_old_versions(board, name, plan$old_versions)
+    if (length(remaining) > 0L) {
+      cli::cli_warn(
+        c(
+          paste0(
+            "Published pin {.val {name}} version {.val {version}}, but ",
+            "cleanup is incomplete."
+          ),
+          "i" = "These old versions still have files: {.val {remaining}}.",
+          "i" = paste0(
+            "Read the new version explicitly with ",
+            "{.code pin_read(board, \"{name}\", version = \"{version}\")}."
+          )
+        ),
+        class = "pinsExtras_cleanup_incomplete"
+      )
+    }
   }
 
   # Return pin name (standard pins API)

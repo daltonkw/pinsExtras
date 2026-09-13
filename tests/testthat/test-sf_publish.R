@@ -540,3 +540,626 @@ test_that("sf_stage_upload_meta sends OVERWRITE=FALSE and validates", {
     fixed = TRUE
   )
 })
+
+# =====================================================================
+# pin_store.pins_board_sf_stage -- the full write sequence (U11-store)
+# =====================================================================
+# Each test mocks only sf_stage_cmd (the one SQL dispatch point); every
+# stage helper and validation function runs for real against the mock
+# transport. Request counts come from grepping the recorded SQL verbs.
+# Progress output is silenced with options(pins.quiet = TRUE).
+
+test_that("a new versioned pin issues one LIST, three PUT, zero REMOVE", {
+  board <- sf_mock_board()
+  meta <- list(
+    api_version = 1L, file = c("cars.rds", "wheels.rds"), file_size = 12L,
+    created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+    type = "rds"
+  )
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- c(
+    file.path(dir, "cars.rds"),
+    file.path(dir, "wheels.rds")
+  )
+  writeLines("a", paths[[1]])
+  writeLines("b", paths[[2]])
+  rec <- sf_mock_transport(list = sf_fixture_listing())
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  out <- pins::pin_store(
+    board, "cars", paths, meta, versioned = TRUE, x = NULL
+  )
+
+  expect_identical(out, "cars")
+  expect_identical(grep("^LIST ", rec$calls, value = TRUE), "LIST '@~/cars/'")
+  expect_length(grep("^PUT ", rec$calls), 3)
+  expect_length(grep("^REMOVE ", rec$calls), 0)
+})
+
+test_that("an unversioned single-payload pin issues one LIST, two PUT", {
+  board <- sf_mock_board(versioned = TRUE)
+  meta <- list(
+    api_version = 1L, file = "cars.rds", file_size = 12L,
+    created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+    type = "rds"
+  )
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- file.path(dir, "cars.rds")
+  writeLines("a", paths)
+  rec <- sf_mock_transport(list = sf_fixture_listing())
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  out <- pinsExtras:::pin_store.pins_board_sf_stage(
+    board, "cars", paths, meta, versioned = FALSE, x = NULL
+  )
+
+  expect_identical(out, "cars")
+  expect_length(grep("^LIST ", rec$calls), 1)
+  # one payload PUT plus the metadata PUT, so two PUT in total
+  expect_length(grep("^PUT ", rec$calls), 2)
+  expect_length(grep("^REMOVE ", rec$calls), 0)
+})
+
+test_that(
+  "a payload-only version is invisible until its data.txt lands",
+  {
+    # The pin carries an old version directory that only has a payload,
+    # no data.txt. Because it is not published, pin_store neither treats
+    # it as the most recent version nor collides against it: it writes a
+    # fresh version. Visibility is what lets the version stay silent.
+    board <- sf_mock_board(versioned = TRUE)
+    meta <- list(
+      api_version = 1L, file = "cars.rds", file_size = 12L,
+      created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- file.path(dir, "cars.rds")
+    writeLines("a", paths)
+    old_payload <- paste0(
+      "cars/", "20240101T000001Z-oldp", "/cars.rds"
+    )
+    rec <- sf_mock_transport(list = sf_fixture_listing(old_payload))
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    out <- pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = TRUE, x = NULL
+    )
+
+    expect_identical(out, "cars")
+    # the payload-only version did not block the write
+    expect_length(grep("^LIST ", rec$calls), 1)
+    expect_length(grep("^PUT ", rec$calls), 2)
+    expect_length(grep("^REMOVE ", rec$calls), 0)
+  }
+)
+
+test_that(
+  "a reserved pin name aborts before a single LIST issues",
+  {
+    board <- sf_mock_board()
+    meta <- list(
+      api_version = 1L, file = "cars.rds", file_size = 12L,
+      created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- file.path(dir, "cars.rds")
+    writeLines("a", paths)
+    rec <- sf_mock_transport(list = sf_fixture_listing())
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    expect_error(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, "data.txt", paths, meta, versioned = TRUE, x = NULL
+      ),
+      "Can't pin file called",
+      fixed = TRUE
+    )
+    expect_length(rec$calls, 0)
+  }
+)
+
+test_that(
+  "an upload set that mismatches metadata aborts before any PUT",
+  {
+    board <- sf_mock_board()
+    meta <- list(
+      api_version = 1L, file = "cars.rds", file_size = 12L,
+      created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- file.path(dir, "wheels.rds")
+    writeLines("b", paths)
+    rec <- sf_mock_transport(list = sf_fixture_listing())
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    expect_error(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, "cars", paths, meta, versioned = TRUE, x = NULL
+      ),
+      class = "pinsExtras_invalid_upload_set"
+    )
+    expect_length(rec$calls, 0)
+  }
+)
+
+test_that(
+  "a published duplicate aborts after one LIST, before any PUT",
+  {
+    board <- sf_mock_board()
+    meta <- list(
+      api_version = 1L, file = "cars.rds", file_size = 12L,
+      created = "20240101T000002Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- file.path(dir, "cars.rds")
+    writeLines("a", paths)
+    v <- paste0(
+      meta$created, "-", substr(meta$pin_hash, 1, 5)
+    )
+    rec <- sf_mock_transport(
+      list = sf_fixture_listing(paste0("cars/", v, "/data.txt"))
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    expect_error(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, "cars", paths, meta, versioned = TRUE, x = NULL
+      ),
+      "the most recent version"
+    )
+    expect_length(grep("^LIST ", rec$calls), 1)
+    expect_length(grep("^PUT ", rec$calls), 0)
+  }
+)
+
+test_that(
+  "a payload-only directory collides after one LIST, before any PUT",
+  {
+    board <- sf_mock_board()
+    meta <- list(
+      api_version = 1L, file = "cars.rds", file_size = 12L,
+      created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- file.path(dir, "cars.rds")
+    writeLines("a", paths)
+    v <- paste0(
+      meta$created, "-", substr(meta$pin_hash, 1, 5)
+    )
+    rec <- sf_mock_transport(
+      list = sf_fixture_listing(paste0("cars/", v, "/cars.rds"))
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    expect_error(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, "cars", paths, meta, versioned = TRUE, x = NULL
+      ),
+      class = "pinsExtras_version_collision"
+    )
+    expect_length(grep("^LIST ", rec$calls), 1)
+    expect_length(grep("^PUT ", rec$calls), 0)
+  }
+)
+
+test_that(
+  "an unversioned write against a versioned pin aborts pins_pin_versioned",
+  {
+    board <- sf_mock_board(versioned = TRUE)
+    meta <- list(
+      api_version = 1L, file = "cars.rds", file_size = 12L,
+      created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- file.path(dir, "cars.rds")
+    writeLines("a", paths)
+    rec <- sf_mock_transport(
+      list = sf_fixture_listing(
+        paste0("cars/", "20240101T000001Z-aaa", "/data.txt"),
+        paste0("cars/", "20240101T000002Z-bbb", "/data.txt")
+      )
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    expect_error(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, "cars", paths, meta, versioned = FALSE, x = NULL
+      ),
+      class = "pins_pin_versioned"
+    )
+    expect_length(grep("^LIST ", rec$calls), 1)
+    expect_length(grep("^PUT ", rec$calls), 0)
+  }
+)
+
+test_that("a failing second payload PUT aborts after one LIST, two PUT", {
+  board <- sf_mock_board()
+  meta <- list(
+    api_version = 1L, file = c("cars.rds", "wheels.rds"), file_size = 12L,
+    created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+    type = "rds"
+  )
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- c(
+    file.path(dir, "cars.rds"),
+    file.path(dir, "wheels.rds")
+  )
+  writeLines("a", paths[[1]])
+  writeLines("b", paths[[2]])
+  bad_put <- function(sql) {
+    args <- sf_mock_sql_args(sql)
+    src <- basename(sub("^file://", "", args[[1]]))
+    data.frame(
+      source = src, target = paste0(args[[2]], "/", src),
+      source_size = 1024, target_size = 1024,
+      source_compression = "NONE", target_compression = "NONE",
+      status = "ERROR", message = "boom",
+      stringsAsFactors = FALSE
+    )
+  }
+  rec <- sf_mock_transport(
+    put = function(sql, calls) {
+      if (sum(grepl("^PUT ", calls)) == 2L) bad_put(sql) else {
+        sf_mock_put_response(sql)
+      }
+    }
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  expect_error(
+    pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = TRUE, x = NULL
+    ),
+    class = "pinsExtras_upload_failed"
+  )
+  expect_length(grep("^LIST ", rec$calls), 1)
+  # only the first payload PUT landed before the failure; the second and
+  # the metadata PUT were never issued
+  expect_length(grep("^PUT ", rec$calls), 2)
+  expect_length(grep("^REMOVE ", rec$calls), 0)
+})
+
+test_that("a SKIPPED payload PUT is reported as an upload failure", {
+  board <- sf_mock_board()
+  meta <- list(
+    api_version = 1L, file = "cars.rds", file_size = 12L,
+    created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+    type = "rds"
+  )
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- file.path(dir, "cars.rds")
+  writeLines("a", paths)
+  rec <- sf_mock_transport(
+    put = function(sql) {
+      args <- sf_mock_sql_args(sql)
+      src <- basename(sub("^file://", "", args[[1]]))
+      data.frame(
+        source = src, target = paste0(args[[2]], "/", src),
+        source_size = 1024, target_size = 1024,
+        source_compression = "NONE", target_compression = "NONE",
+        status = "SKIPPED", message = "",
+        stringsAsFactors = FALSE
+      )
+    }
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  expect_error(
+    pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = TRUE, x = NULL
+    ),
+    class = "pinsExtras_upload_failed"
+  )
+  expect_length(grep("^LIST ", rec$calls), 1)
+  expect_length(grep("^PUT ", rec$calls), 1)
+  expect_length(grep("^REMOVE ", rec$calls), 0)
+})
+
+test_that("an explicit metadata PUT failure is a plain upload failure", {
+  board <- sf_mock_board()
+  meta <- list(
+    api_version = 1L, file = c("cars.rds", "wheels.rds"), file_size = 12L,
+    created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+    type = "rds"
+  )
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- c(
+    file.path(dir, "cars.rds"),
+    file.path(dir, "wheels.rds")
+  )
+  writeLines("a", paths[[1]])
+  writeLines("b", paths[[2]])
+  bad_put <- function(sql) {
+    args <- sf_mock_sql_args(sql)
+    src <- basename(sub("^file://", "", args[[1]]))
+    data.frame(
+      source = src, target = paste0(args[[2]], "/", src),
+      source_size = 1024, target_size = 1024,
+      source_compression = "NONE", target_compression = "NONE",
+      status = "ERROR", message = "boom",
+      stringsAsFactors = FALSE
+    )
+  }
+  rec <- sf_mock_transport(
+    put = function(sql) {
+      if (grepl("data.txt", sql, fixed = TRUE)) bad_put(sql) else {
+        sf_mock_put_response(sql)
+      }
+    }
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  expect_error(
+    pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = TRUE, x = NULL
+    ),
+    class = "pinsExtras_upload_failed"
+  )
+  expect_length(grep("^LIST ", rec$calls), 1)
+  expect_length(grep("^PUT ", rec$calls), 3)
+  expect_length(grep("^REMOVE ", rec$calls), 0)
+})
+
+test_that("an uninterpretable metadata PUT is a publication uncertainty", {
+  board <- sf_mock_board()
+  meta <- list(
+    api_version = 1L, file = c("cars.rds", "wheels.rds"), file_size = 12L,
+    created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+    type = "rds"
+  )
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- c(
+    file.path(dir, "cars.rds"),
+    file.path(dir, "wheels.rds")
+  )
+  writeLines("a", paths[[1]])
+  writeLines("b", paths[[2]])
+  rec <- sf_mock_transport(
+    put = function(sql, calls) {
+      if (sum(grepl("^PUT ", calls)) == 3L) NULL else {
+        sf_mock_put_response(sql)
+      }
+    }
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  expect_error(
+    pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = TRUE, x = NULL
+    ),
+    class = "pinsExtras_publication_uncertain"
+  )
+  expect_length(grep("^LIST ", rec$calls), 1)
+  expect_length(grep("^PUT ", rec$calls), 3)
+  expect_length(grep("^REMOVE ", rec$calls), 0)
+})
+
+test_that(
+  "unversioned replace with a clean old version issues 3 LIST, 3 PUT, 2 REMOVE",
+  {
+    board <- sf_mock_board(versioned = TRUE)
+    meta <- list(
+      api_version = 1L, file = c("cars.rds", "wheels.rds"), file_size = 12L,
+      created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    oldv <- "20240101T000001Z-oldv"
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- c(
+      file.path(dir, "cars.rds"),
+      file.path(dir, "wheels.rds")
+    )
+    writeLines("a", paths[[1]])
+    writeLines("b", paths[[2]])
+    rec <- sf_mock_transport(
+      list = function(sql, calls) {
+        if (endsWith(sql, paste0("cars/'"))) {
+          # pin-scoped: the preflight listing shows the old version
+          # published; the final listing (its second pin-scoped call)
+          # shows the old version gone.
+          if (sum(grepl("^LIST ", calls)) == 1L) {
+            sf_fixture_listing(
+              paste0("cars/", oldv, "/data.txt"), board = board
+            )
+          } else {
+            sf_fixture_listing(board = board)
+          }
+        } else {
+          # confirm LIST scoped to the old version dir: data.txt is gone.
+          sf_fixture_listing(board = board)
+        }
+      }
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    out <- expect_no_warning(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, "cars", paths, meta, versioned = FALSE, x = NULL
+      )
+    )
+
+    expect_identical(out, "cars")
+    expect_length(grep("^LIST ", rec$calls), 3)
+    expect_length(grep("^PUT ", rec$calls), 3)
+    expect_length(grep("^REMOVE ", rec$calls), 2)
+  }
+)
+
+test_that(
+  "unversioned replace that cannot confirm cleanup warns and still returns",
+  {
+    board <- sf_mock_board(versioned = TRUE)
+    meta <- list(
+      api_version = 1L, file = c("cars.rds", "wheels.rds"), file_size = 12L,
+      created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    oldv <- "20240101T000001Z-oldv"
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- c(
+      file.path(dir, "cars.rds"),
+      file.path(dir, "wheels.rds")
+    )
+    writeLines("a", paths[[1]])
+    writeLines("b", paths[[2]])
+    rec <- sf_mock_transport(
+      list = function(sql) {
+        # Every listing still shows the old version: the confirm LIST
+        # cannot clear the data.txt, and the final pin listing still sees
+        # the old version, so cleanup reports the version as remaining.
+        sf_fixture_listing(paste0("cars/", oldv, "/data.txt"), board = board)
+      }
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    expect_warning(
+      out <- pinsExtras:::pin_store.pins_board_sf_stage(
+        board, "cars", paths, meta, versioned = FALSE, x = NULL
+      ),
+      regexp = "cleanup is incomplete",
+      class = "pinsExtras_cleanup_incomplete"
+    )
+    expect_identical(out, "cars")
+    # preflight, the failed confirm LIST, and the final pin listing
+    expect_length(grep("^LIST ", rec$calls), 3)
+    expect_length(grep("^PUT ", rec$calls), 3)
+    # only the first data.txt REMOVE before the loop broke
+    expect_length(grep("^REMOVE ", rec$calls), 1)
+  }
+)
+
+test_that("the cleanup warning names the version inside the pin_read call", {
+  board <- sf_mock_board(versioned = TRUE)
+  meta <- list(
+    api_version = 1L, file = c("cars.rds", "wheels.rds"), file_size = 12L,
+    created = "20240102T000000Z", pin_hash = "zzz990000",
+    type = "rds"
+  )
+  oldv <- "20240101T000001Z-oldv"
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- c(
+    file.path(dir, "cars.rds"),
+    file.path(dir, "wheels.rds")
+  )
+  writeLines("a", paths[[1]])
+  writeLines("b", paths[[2]])
+  rec <- sf_mock_transport(
+    list = function(sql) {
+      # Every listing still shows the old version: the confirm LIST
+      # cannot clear the data.txt, so cleanup reports the old version as
+      # remaining and warns with the exact read call to use.
+      sf_fixture_listing(paste0("cars/", oldv, "/data.txt"), board = board)
+    }
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  # Widen cli so it does not wrap the pinned read call across lines.
+  withr::local_options(pins.quiet = TRUE, cli.width = 300)
+
+  w <- expect_warning(
+    out <- pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = FALSE, x = NULL
+    ),
+    class = "pinsExtras_cleanup_incomplete"
+  )
+  expect_identical(out, "cars")
+  msg <- cli::ansi_strip(conditionMessage(w))
+  expect_true(grepl(
+    'pin_read(board, "cars", version = "20240102T000000Z-zzz99")',
+    msg,
+    fixed = TRUE
+  ))
+})
+
+test_that("a version is invisible to discovery until its data.txt lands", {
+  board <- sf_mock_board()
+  meta <- list(
+    api_version = 1L, file = "cars.rds", file_size = 12L,
+    created = "20240102T000000Z", pin_hash = "zzz990000",
+    type = "rds"
+  )
+  v <- sf_version_name(meta)
+  # A pre-existing payload-only directory of a different version: it is not
+  # published and is not the version being written, so it neither counts as a
+  # version nor collides with the new write.
+  oldp <- "20240101T000001Z-oldp"
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- file.path(dir, "cars.rds")
+  writeLines("a", paths)
+  # The LIST responder reads the record of issued commands: only the payload
+  # has been put at first, so listing shows the old payload with no data.txt,
+  # unpublished; once the metadata PUT is issued, discovery reports the pin.
+  rec <- sf_mock_transport(
+    list = function(sql, calls) {
+      if (any(grepl("data.txt", calls, fixed = TRUE))) {
+        sf_fixture_listing(paste0("cars/", v, "/data.txt"))
+      } else {
+        sf_fixture_listing(paste0("cars/", oldp, "/cars.rds"))
+      }
+    }
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  # No metadata yet: the payload-only version is not a published pin.
+  expect_false(pins::pin_exists(board, "cars"))
+
+  out <- pins::pin_store(
+    board, "cars", paths, meta, versioned = FALSE, x = NULL
+  )
+  expect_identical(out, "cars")
+
+  # The metadata PUT has now been issued, so discovery sees the pin.
+  expect_true(pins::pin_exists(board, "cars"))
+})

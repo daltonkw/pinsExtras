@@ -118,7 +118,8 @@ sf_check_upload_set <- function(
       call = call
     )
   }
-  meta_files <- as.character(metadata$file)
+  meta_files <-
+    if ("file" %in% names(metadata)) metadata$file else character(0)
   if (!setequal(meta_files, basenames)) {
     cli::cli_abort(
       c(

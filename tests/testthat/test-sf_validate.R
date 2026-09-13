@@ -164,7 +164,8 @@ test_that("sf_check_upload_set names one missing file", {
   cond <- expect_error(
     pinsExtras:::sf_check_upload_set(
       "cars", c(a, fs::path(d, "gone.rds")), list(file = "a.rds")
-    )
+    ),
+    class = "pinsExtras_invalid_upload_set"
   )
   msg <- cli::ansi_strip(conditionMessage(cond))
   expect_true(grepl("gone.rds", msg, fixed = TRUE))
@@ -179,7 +180,8 @@ test_that("sf_check_upload_set names both missing files", {
   cond <- expect_error(
     pinsExtras:::sf_check_upload_set(
       "cars", c(a, g1, g2), list(file = "a.rds")
-    )
+    ),
+    class = "pinsExtras_invalid_upload_set"
   )
   msg <- cli::ansi_strip(conditionMessage(cond))
   expect_true(grepl("gone1.rds", msg, fixed = TRUE))
