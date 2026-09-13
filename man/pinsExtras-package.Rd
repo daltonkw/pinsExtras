@@ -17,11 +17,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Kevin Dalton
+\strong{Maintainer}: Kevin Dalton \email{daltonkw@users.noreply.github.com}
 
 Authors:
 \itemize{
-  \item Kevin Dalton
+  \item Kevin Dalton \email{daltonkw@users.noreply.github.com}
 }
 
 }

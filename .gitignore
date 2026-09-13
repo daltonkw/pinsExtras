@@ -36,3 +36,6 @@ odbc.ini
 odbcinst.ini
 .snowflake/
 .posit/
+
+# Built package tarballs
+*.tar.gz
