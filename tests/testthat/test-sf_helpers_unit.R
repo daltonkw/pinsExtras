@@ -287,3 +287,40 @@ test_that("sf_escape_regex escapes exactly the 14 Java metacharacters", {
     "a=b!c<d>e:f-g"
   )
 })
+
+test_that("sf_get_pattern builds a different pattern from sf_remove_pattern",
+{
+  # GET and REMOVE share the file name but apply it to different Snowflake
+  # engines, so they must not collapse to one helper.
+  expect_false(
+    identical(
+      pinsExtras:::sf_get_pattern("data.txt"),
+      pinsExtras:::sf_remove_pattern("data.txt")
+    )
+  )
+})
+
+test_that("sf_get_pattern builds the .*/...$ pattern for one file", {
+  expect_identical(pinsExtras:::sf_get_pattern("data.txt"), ".*/data\\.txt$")
+  expect_identical(pinsExtras:::sf_get_pattern("report"), ".*/report$")
+  expect_identical(
+    pinsExtras:::sf_get_pattern("report.pdf"),
+    ".*/report\\.pdf$"
+  )
+  expect_identical(
+    pinsExtras:::sf_get_pattern("my.pin.rds"),
+    ".*/my\\.pin\\.rds$"
+  )
+})
+
+test_that("sf_get_pattern's grepl match is TRUE for the one staged file", {
+  pat <- pinsExtras:::sf_get_pattern("data.txt")
+  # GET matches the whole staged path, which carries a leading prefix.
+  expect_true(grepl(pat, "mystage/cars/v/data.txt"))
+})
+
+test_that("sf_get_pattern's grepl match is FALSE for a sibling", {
+  pat <- pinsExtras:::sf_get_pattern("data.txt")
+  expect_false(grepl(pat, "mystage/cars/v/data.txt.bak"))
+  expect_false(grepl(pat, "mystage/cars/v/cars.rds"))
+})

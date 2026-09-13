@@ -364,13 +364,28 @@ sf_stage_download <- function(
   tmp <- withr::local_tempdir()
   dest_dir <- fs::path_abs(fs::path_expand(dest_dir))
   fs::dir_create(dest_dir)
-  target <- sf_stage_path(board, key)
+  # The GET LOCATION names the directory that holds the file, not the file,
+  # so Snowflake's prefix matching cannot pull in a sibling. A key such as
+  # "cars/v/data.txt" gives the directory "cars/v"; a bare name such as
+  # "_pins.yaml" gives fs::path_dir() = ".", which maps to the board root.
+  # The trailing slash is the same scoping REMOVE and LIST rely on, so it is
+  # added only when the directory is non-empty; the board root is the stage
+  # itself and carries no slash (see sf_stage_exists()).
+  dir <- fs::path_dir(key)
+  if (dir == ".") {
+    dir <- ""
+  }
+  location <- sf_stage_path(board, dir)
+  if (dir != "") {
+    location <- paste0(location, "/")
+  }
   result <- sf_stage_cmd(
     board,
     sprintf(
-      "GET %s %s",
-      sf_quote_stage_path(target),
-      sf_quote_file_uri(fs::path(tmp, ""))
+      "GET %s %s PATTERN = %s",
+      sf_quote_stage_path(location),
+      sf_quote_file_uri(fs::path(tmp, "")),
+      sf_quote_sql_literal(sf_get_pattern(fs::path_file(key)))
     )
   )
   # Prove the transfer succeeded before returning anything.

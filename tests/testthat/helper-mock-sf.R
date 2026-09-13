@@ -261,7 +261,16 @@ sf_mock_get_files <- function(..., status = "DOWNLOADED", missing = character())
     args <- sf_mock_sql_args(sql)
     src <- args[[1]]
     dest_dir <- sub("^file://", "", args[[2]])
-    file <- basename(src)
+    # Since U15 the GET verb names a DIRECTORY and selects one file with a
+    # PATTERN of the form '.*/<escaped file>$', so the file name lives in the
+    # pattern rather than in the location. Recover it from there when a
+    # pattern is present; fall back to the location for any caller that still
+    # passes a full file path.
+    file <- if (length(args) >= 3L) {
+      gsub("\\\\", "", sub("\\$$", "", sub("^\\.\\*/", "", args[[3]])))
+    } else {
+      basename(src)
+    }
 
     if (!file %in% missing) {
       text <- contents[[file]] %||% ""

@@ -14,7 +14,12 @@ test_that("sf_stage_download fetches a file into a fresh directory", {
   expect_length(rec$calls, 1L)
   expect_match(
     rec$calls[[1]],
-    "GET '@~/cars/v/data.txt' 'file://",
+    "GET '@~/cars/v/'",
+    fixed = TRUE
+  )
+  expect_match(
+    rec$calls[[1]],
+    "PATTERN = '.*/data\\\\.txt$'",
     fixed = TRUE
   )
   expect_true(fs::file_exists(fs::path(dest, "data.txt")))
@@ -36,7 +41,12 @@ test_that("sf_stage_download scopes a named stage to its board path", {
 
   expect_match(
     rec$calls[[1]],
-    "GET '@mystage/team-data/cars/v/data.txt' 'file://",
+    "GET '@mystage/team-data/cars/v/'",
+    fixed = TRUE
+  )
+  expect_match(
+    rec$calls[[1]],
+    "PATTERN = '.*/data\\\\.txt$'",
     fixed = TRUE
   )
 })
@@ -296,5 +306,123 @@ test_that("sf_check_get_result rejects a file_size response without file", {
       "cars/v/data.txt"
     ),
     class = "pinsExtras_download_failed"
+  )
+})
+
+test_that("sf_stage_download emits the full GET with PATTERN at the board root",
+{
+  board <- sf_mock_board()
+  dest <- withr::local_tempdir()
+  rec <- sf_mock_transport(
+    get = sf_mock_get_files("data.txt" = "fresh")
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder,
+    .package = "pinsExtras"
+  )
+
+  pinsExtras:::sf_stage_download(board, "cars/v/data.txt", dest)
+
+  # Anchored at both ends with only the unpredictable temp URI wild-carded,
+  # so the LOCATION and the full PATTERN clause are pinned exactly.
+  expect_match(rec$calls[[1]], "GET '@~/cars/v/' 'file://", fixed = TRUE)
+  expect_match(
+    rec$calls[[1]],
+    "PATTERN = '.*/data\\\\.txt$'",
+    fixed = TRUE
+  )
+})
+
+test_that("sf_stage_download emits the full GET for a named stage and board path",
+{
+  board <- sf_mock_board(path = "team-data", stage = "@mystage")
+  dest <- withr::local_tempdir()
+  rec <- sf_mock_transport(
+    get = sf_mock_get_files("data.txt" = "fresh")
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder,
+    .package = "pinsExtras"
+  )
+
+  pinsExtras:::sf_stage_download(board, "cars/v/data.txt", dest)
+
+  expect_match(rec$calls[[1]], "GET '@mystage/team-data/cars/v/' 'file://",
+    fixed = TRUE
+  )
+  expect_match(
+    rec$calls[[1]],
+    "PATTERN = '.*/data\\\\.txt$'",
+    fixed = TRUE
+  )
+})
+
+test_that("sf_stage_download escapes a dotted name and scopes to its directory",
+{
+  board <- sf_mock_board()
+  dest <- withr::local_tempdir()
+  rec <- sf_mock_transport(
+    get = sf_mock_get_files("my.pin.rds" = "fresh")
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder,
+    .package = "pinsExtras"
+  )
+
+  pinsExtras:::sf_stage_download(board, "cars/v/my.pin.rds", dest)
+
+  expect_match(rec$calls[[1]], "GET '@~/cars/v/'", fixed = TRUE)
+  expect_match(
+    rec$calls[[1]],
+    "PATTERN = '.*/my\\\\.pin\\\\.rds$'",
+    fixed = TRUE
+  )
+})
+
+test_that("sf_stage_download scopes the board root when the key has no directory",
+{
+  board <- sf_mock_board()
+  dest <- withr::local_tempdir()
+  rec <- sf_mock_transport(
+    get = sf_mock_get_files("_pins.yaml" = "fresh")
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder,
+    .package = "pinsExtras"
+  )
+
+  pinsExtras:::sf_stage_download(board, "_pins.yaml", dest)
+
+  # fs::path_dir("_pins.yaml") is "", mapped to the board root, so the
+  # LOCATION is "@~" with no trailing slash and the PATTERN still anchors it.
+  expect_match(rec$calls[[1]], "GET '@~' 'file://", fixed = TRUE)
+  expect_match(
+    rec$calls[[1]],
+    "PATTERN = '.*/_pins\\\\.yaml$'",
+    fixed = TRUE
+  )
+})
+
+test_that("sf_stage_download narrows a report/report.pdf collision to report",
+{
+  board <- sf_mock_board()
+  dest <- withr::local_tempdir()
+  # The mock returns whatever the PATTERN names, so this cannot reproduce the
+  # live two-row read offline; what it pins is the emitted PATTERN, which is
+  # the whole fix. A bare "report" location would match report.pdf too.
+  rec <- sf_mock_transport(
+    get = sf_mock_get_files("report" = "fresh")
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder,
+    .package = "pinsExtras"
+  )
+
+  pinsExtras:::sf_stage_download(board, "cars/v/report", dest)
+
+  expect_match(
+    rec$calls[[1]],
+    "PATTERN = '.*/report$'",
+    fixed = TRUE
   )
 })

@@ -364,6 +364,7 @@ sf_escape_regex <- function(x) {
   structure(out, names = NULL)
 }
 
+# GET's sibling lives in sf_get_pattern(); the two differ on purpose.
 # Build a REMOVE ... PATTERN expression for Snowflake. One argument: the
 # single file name. Anchored at both ends with an optional leading-path
 # group so the pattern matches the named file whether Snowflake applies the
@@ -374,6 +375,19 @@ sf_escape_regex <- function(x) {
 # directory. This came from a live non-destructive probe, not an inference.
 sf_remove_pattern <- function(file) {
   paste0("^(.*/)?", sf_escape_regex(file), "$")
+}
+
+# Build a GET ... PATTERN expression for Snowflake. One argument: the single
+# file name. Deliberately a different form from sf_remove_pattern(): GET
+# matches the PATTERN as a whole string against a full staged path that carries
+# a leading prefix, so it must be anchored at the front too, hence the
+# ".*/" prefix rather than REMOVE's "^(.*/)?". A live non-destructive probe
+# showed REMOVE's form returning zero rows under GET, and a bare file prefix
+# matching a sibling, so the two verbs need two patterns. Escaping is
+# reused from sf_escape_regex(); the directory is never part of the pattern
+# because the GET LOCATION scopes the command to one directory.
+sf_get_pattern <- function(file) {
+  paste0(".*/", sf_escape_regex(file), "$")
 }
 
 # Strip the board path from a listing so names are board-relative.
