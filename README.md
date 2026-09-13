@@ -342,7 +342,7 @@ If you need all-or-nothing, validate the names yourself before calling.
 
 Reads cache locally under `pins::board_cache_path()`.
 
-**The cache directory is keyed by the stage text and the board path, and by nothing else.** Not the account, not the user behind `@~`, not the database or schema an unqualified stage name resolves to. Two boards pointing at *different Snowflake accounts* with the same stage text therefore share one cache directory, and the second write of a given version id replaces the first one's files. An earlier version of this README claimed sessions are isolated from each other; that was wrong.
+**The cache directory is keyed by the stage text and the board path, and by nothing else.** Not the account, not the user behind `@~`, not the database or schema an unqualified stage name resolves to. Two boards pointing at *different Snowflake accounts* with the same stage text therefore share one cache directory, and the second write of a given version id replaces the first one's files.
 
 What follows from it:
 
