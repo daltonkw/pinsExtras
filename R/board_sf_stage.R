@@ -235,9 +235,18 @@ pin_exists.pins_board_sf_stage <- function(board, name, ...) {
 pin_delete.pins_board_sf_stage <- function(board, names, ...) {
   # Delete one or more pins (all versions) from the board
   for (name in names) {
-    sf_check_pin_exists(board, name)
-    # Recursively delete the entire pin directory
-    sf_stage_delete(board, name)
+    # A name must be a non-empty string.
+    if (!rlang::is_string(name) || name == "") {
+      cli::cli_abort("{.arg names} must be non-empty strings")
+    }
+    # One pin-scoped listing, then the published check on the derived index.
+    # A payload-only orphan has no data.txt, so it is not published and is
+    # reported as absent: use pin_version_delete() to remove it raw.
+    listing <- sf_stage_list(board, name)
+    index <- sf_published_index(listing, prefix = sf_normalize_path(board))
+    sf_check_pin_published(index, name)
+    # Delete the entire pin directory, scoped with a trailing slash.
+    sf_stage_delete_dir(board, name)
   }
   invisible(board)
 }
@@ -253,8 +262,17 @@ pin_versions.pins_board_sf_stage <- function(board, name, ...) {
 
 #' @export
 pin_version_delete.pins_board_sf_stage <- function(board, name, version, ...) {
-  # Delete a specific version of a pin (not all versions)
-  sf_stage_delete(board, fs::path(name, version))
+  # Delete a specific version of a pin (not all versions). No listing and no
+  # existence check: this is the raw directory delete, used for an incomplete
+  # version directory that discovery cannot see.
+  if (!rlang::is_string(name) || name == "") {
+    cli::cli_abort("{.arg name} must be a non-empty string")
+  }
+  if (!rlang::is_string(version) || version == "") {
+    cli::cli_abort("{.arg version} must be a non-empty string")
+  }
+  sf_stage_delete_dir(board, fs::path(name, version))
+  invisible(board)
 }
 
 #' @export
@@ -421,18 +439,18 @@ board_deparse.pins_board_sf_stage <- function(board, ...) {
 
 #' @export
 write_board_manifest_yaml.pins_board_sf_stage <- function(board, manifest, ...) {
-  # Manifest is stored at the root of the board as _pins.yaml
+  # Manifest is stored at the root of the board as _pins.yaml. Overwrite it
+  # directly; the delete-before-upload step is gone.
   manifest_path <- sf_manifest_pin_yaml_filename
 
-  # Delete existing manifest if present (will be replaced)
-  if (sf_stage_exists(board, manifest_path)) {
-    sf_stage_delete(board, manifest_path)
-  }
-
-  # Write manifest to temporary file then upload to stage
   temp_file <- withr::local_tempfile()
   yaml::write_yaml(manifest, file = temp_file)
-  sf_stage_upload(board, src = temp_file, dest = manifest_path)
+  sf_stage_upload(
+    board,
+    src = temp_file,
+    dest = manifest_path,
+    overwrite = TRUE
+  )
 }
 
 #' @export

@@ -8,12 +8,6 @@ sf_end_with_slash <- function(x) {
   x
 }
 
-sf_check_pin_exists <- function(board, name, call = rlang::caller_env()) {
-  if (!pin_exists(board, name)) {
-    cli::cli_abort("Can't find pin called {.val {name}}", call = call)
-  }
-}
-
 sf_check_pin_name <- function(name, call = rlang::caller_env()) {
   # Not a string is first: more than one condition can be true at once, and
   # this order is the contract.
@@ -136,22 +130,6 @@ sf_check_upload_set <- function(
   invisible(TRUE)
 }
 
-sf_check_pin_version <- function(board, name, version, call = rlang::caller_env()) {
-  versions <- pin_versions(board, name)
-  if (nrow(versions) == 0) {
-    cli::cli_abort("No versions available for {.val {name}}", call = call)
-  }
-
-  if (is.null(version)) {
-    # Return the LAST (newest) version, matching pins behavior
-    versions$version[[nrow(versions)]]
-  } else if (version %in% versions$version) {
-    version
-  } else {
-    sf_abort_pin_version_missing(version, call = call)
-  }
-}
-
 sf_abort_pin_version_missing <- function(version, call = rlang::caller_env()) {
   cli::cli_abort("Can't find version {.val {version}}", call = call)
 }
@@ -225,19 +203,6 @@ sf_version_from_path <- function(x) {
   out$created[n_ok] <- sf_parse_8601_compact(purrr::map_chr(pieces[n_ok], 1))
   out$hash[n_ok] <- purrr::map_chr(pieces[n_ok], 2)
   out
-}
-
-sf_version_setup <- function(board, name, new_version, versioned = NULL) {
-  n_versions <- 0
-  if (pin_exists(board, name)) {
-    versions <- pin_versions(board, name)
-    n_versions <- nrow(versions)
-  }
-  ver_flag <- versioned %||% board$versioned %||% TRUE
-  if (!ver_flag && n_versions > 0) {
-    sf_stage_delete(board, name)
-  }
-  new_version
 }
 
 sf_parse_8601_compact <- function(x) {

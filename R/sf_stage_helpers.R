@@ -458,27 +458,24 @@ sf_check_get_result <- function(result, file, key, call = rlang::caller_env()) {
 }
 
 sf_stage_exists <- function(board, path) {
-  nrow(sf_stage_list(board, path)) > 0
+  # sf_stage_list() appends a trailing slash to a non-empty prefix, so asking
+  # whether a FILE exists would issue a directory prefix that matches nothing
+  # against real Snowflake. List the file's parent instead, and match the file
+  # by its exact normalised (stage-root-relative) name; a sibling such as
+  # data.txt.bak therefore does not count.
+  dir <- fs::path_dir(path)
+  if (dir == ".") {
+    dir <- ""
+  }
+  listing <- sf_stage_list(board, dir)
+  normalised <- sf_normalize_path(board, path)
+  any(listing$name == normalised & !is.na(listing$name))
 }
 
 sf_stage_delete <- function(board, path) {
   target <- sf_stage_path(board, path)
   sql <- sprintf("REMOVE %s", target)
   sf_stage_cmd(board, sql)
-}
-
-sf_children <- function(board, dir = "") {
-  dir_norm <- sf_normalize_path(board, dir)
-  df <- sf_stage_list(board, dir)
-  if (nrow(df) == 0) {
-    return(character())
-  }
-
-  rel <- df$name
-  dir_prefix <- if (dir_norm == "") "" else paste0(sf_end_with_slash(dir_norm))
-  rel <- sub(paste0("^", dir_prefix), "", rel)
-  pieces <- strsplit(rel, "/")
-  unique(purrr::map_chr(pieces, ~ .x[[1]]))
 }
 
 # Delete a directory and everything under it from the stage.
@@ -598,8 +595,8 @@ sf_cleanup_old_versions <- function(board, name, versions,
   # under it. Literal string operations only.
   relative <- sf_board_relative(final_listing, sf_normalize_path(board))
   any_left <- function(target) {
-    names <- relative$name
-    matches <- names == target | startsWith(names, paste0(target, "/"))
+    found <- relative$name
+    matches <- found == target | startsWith(found, paste0(target, "/"))
     any(matches & !is.na(matches))
   }
   keep <- vapply(
