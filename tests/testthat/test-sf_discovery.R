@@ -603,7 +603,7 @@ test_that("pin_meta issues one listing, one GET, and resolves the newest", {
 test_that("pin_meta resolves the newest version across an out-of-order list", {
   board <- sf_mock_board(stage = "@~")
   meta <- list(
-    api_version = 1L, file = "data.txt", file_size = 1,
+    api_version = 1L, file = "cars.txt", file_size = 1,
     created = "20240101", pin_hash = "abc1234567", type = "txt"
   )
   rec <- sf_mock_transport(
@@ -626,7 +626,7 @@ test_that("pin_meta resolves the newest version across an out-of-order list", {
 test_that("pin_meta picks the lexically last version on equal timestamps", {
   board <- sf_mock_board(stage = "@~")
   meta <- list(
-    api_version = 1L, file = "data.txt", file_size = 1,
+    api_version = 1L, file = "cars.txt", file_size = 1,
     created = "20240101", pin_hash = "abc1234567", type = "txt"
   )
   v <- "20240101T000000Z"

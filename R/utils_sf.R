@@ -228,6 +228,44 @@ sf_read_meta <- function(path, call = rlang::caller_env()) {
     yaml$created <- sf_parse_8601_compact(yaml$created)
     yaml$user <- yaml$user %||% list()
   }
+  # The payload names the stage returns are attacker-controlled (SEC-02), so
+  # validate them strictly before handing any string back to the caller. The
+  # legacy branch above set yaml$file from yaml$path, so legacy metadata gets
+  # the same check. A value that fails any rule aborts rather than being
+  # silently reduced to a basename, which would make the returned name
+  # disagree with what was fetched. The value is never interpolated into the
+  # message; it says what was required.
+  files <- yaml$file
+  bad <-
+    !is.character(files) ||
+    length(files) == 0L ||
+    any(is.na(files)) ||
+    any(
+      files == "" |
+        files == "." |
+        grepl("/", files, fixed = TRUE) |
+        grepl("\\", files, fixed = TRUE) |
+        grepl("..", files, fixed = TRUE) |
+        files == "data.txt"
+    ) ||
+    length(unique(files)) != length(files)
+  if (bad) {
+    cli::cli_abort(
+      c(
+        "Can't read pin metadata.",
+        "x" = paste0(
+          "The {.code file} field must list every uploaded file exactly once."
+        ),
+        "i" = paste0(
+          "Each entry must be a single safe file name with no directory",
+          " separators, and not {.code .}, {.code ..} or",
+          " {.code data.txt}."
+        )
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
   yaml
 }
 

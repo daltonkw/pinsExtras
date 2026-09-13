@@ -243,3 +243,350 @@ test_that(
     expect_length(grep("^GET ", rec$calls), 0L)
   }
 )
+
+# ---- SEC-02: sf_read_meta() rejects an untrusted payload name --------------
+# Every test drives the real read path through pins::pin_meta(): the LIST
+# resolves the version, the GET serves crafted metadata, and pin_meta() reads
+# it through sf_read_meta(), which now validates yaml$file.
+
+make_meta <- function(file) {
+  base <- list(
+    api_version = 1L,
+    created = "20240101",
+    pin_hash = "abc1234567",
+    type = "txt"
+  )
+  base$file <- file
+  base
+}
+
+test_that(
+  "pin_meta rejects a deep-traversal file in metadata, classed",
+  {
+    board <- sf_mock_board(stage = "@~")
+    meta <- make_meta(file = "../../../../private.csv")
+    rec <- sf_mock_transport(
+      list = sf_fixture_listing(
+        "cars/20240101T000000Z-abc12/data.txt", board = board
+      ),
+      get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+
+    expect_error(
+      pins::pin_meta(board, "cars"),
+      class = "pinsExtras_download_failed"
+    )
+  }
+)
+
+test_that("pin_meta rejects a parent-relative file in metadata", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = "../sibling.csv",
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      "cars/20240101T000000Z-abc12/data.txt", board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars"),
+    class = "pinsExtras_download_failed"
+  )
+})
+
+test_that("pin_meta rejects a file carrying a backslash", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = "a\\b.csv",
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      "cars/20240101T000000Z-abc12/data.txt", board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars"),
+    class = "pinsExtras_download_failed"
+  )
+})
+
+test_that("pin_meta rejects the reserved data.txt marker as payload", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = "data.txt",
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      "cars/20240101T000000Z-abc12/data.txt", board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars"),
+    class = "pinsExtras_download_failed"
+  )
+})
+
+test_that("pin_meta rejects an empty-string file in metadata", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = "",
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      "cars/20240101T000000Z-abc12/data.txt", board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars"),
+    class = "pinsExtras_download_failed"
+  )
+})
+
+test_that("pin_meta rejects metadata with no file field at all", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L,
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      "cars/20240101T000000Z-abc12/data.txt", board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars"),
+    class = "pinsExtras_download_failed"
+  )
+})
+
+test_that("pin_meta rejects a duplicate file entry, classed", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = c("a.csv", "a.csv"),
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      "cars/20240101T000000Z-abc12/data.txt", board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars"),
+    class = "pinsExtras_download_failed"
+  )
+})
+
+test_that("pin_meta rejects a list containing one bad of two", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = c("a.csv", "../b.csv"),
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      "cars/20240101T000000Z-abc12/data.txt", board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  expect_error(
+    pins::pin_meta(board, "cars"),
+    class = "pinsExtras_download_failed"
+  )
+})
+
+test_that(
+  "pin_meta rejects a traversal file without echoing the payload",
+  {
+    board <- sf_mock_board(stage = "@~")
+    meta <- list(
+      api_version = 1L, file = "../../../../../SENTINEL.csv",
+      created = "20240101", pin_hash = "abc1234567", type = "txt"
+    )
+    rec <- sf_mock_transport(
+      list = sf_fixture_listing(
+        "cars/20240101T000000Z-abc12/data.txt", board = board
+      ),
+      get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+
+    cond <- expect_error(
+      pins::pin_meta(board, "cars"),
+      class = "pinsExtras_download_failed"
+    )
+    msg <- cli::ansi_strip(conditionMessage(cond))
+    expect_false(grepl("SENTINEL", msg, fixed = TRUE))
+  }
+)
+
+test_that("pin_meta accepts a clean, duplicate-free file list", {
+  board <- sf_mock_board(stage = "@~")
+  meta <- list(
+    api_version = 1L, file = c("a.csv", "b.csv"),
+    created = "20240101", pin_hash = "abc1234567", type = "txt"
+  )
+  rec <- sf_mock_transport(
+    list = sf_fixture_listing(
+      "cars/20240101T000000Z-abc12/data.txt", board = board
+    ),
+    get = sf_mock_get_files("data.txt" = yaml::as.yaml(meta))
+  )
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+
+  out <- pins::pin_meta(board, "cars")
+  expect_identical(out$file, c("a.csv", "b.csv"))
+})
+
+# ---- SEC-06: pin_store() rejects metadata whose version is not discoverable
+# These drive the write through the pin_store() method and assert the command
+# count, because the whole point is that nothing moves and nothing is deleted.
+
+test_that(
+  "a version that cannot be parsed aborts the write before any command",
+  {
+    board <- sf_mock_board()
+    meta <- list(
+      api_version = 1L, file = "cars.rds", file_size = 12L,
+      created = "bogus", pin_hash = "def12", type = "rds"
+    )
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- file.path(dir, "cars.rds")
+    writeLines("a", paths)
+    rec <- sf_mock_transport(list = sf_fixture_listing())
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    expect_error(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, "cars", paths, meta, versioned = TRUE, x = NULL
+      ),
+      class = "pinsExtras_invalid_upload_set"
+    )
+    expect_length(rec$calls, 0L)
+  }
+)
+
+test_that("a write with no created field aborts before any command", {
+  board <- sf_mock_board()
+  meta <- list(
+    api_version = 1L, file = "cars.rds", file_size = 12L,
+    pin_hash = "abcdef0123456789", type = "rds"
+  )
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- file.path(dir, "cars.rds")
+  writeLines("a", paths)
+  rec <- sf_mock_transport(list = sf_fixture_listing())
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  expect_error(
+    pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = TRUE, x = NULL
+    ),
+    class = "pinsExtras_invalid_upload_set"
+  )
+  expect_length(rec$calls, 0L)
+})
+
+test_that("a write with no pin_hash field aborts before any command", {
+  board <- sf_mock_board()
+  meta <- list(
+    api_version = 1L, file = "cars.rds", file_size = 12L,
+    created = "20240102T000000Z", type = "rds"
+  )
+  dir <- withr::local_tempdir(.local_envir = parent.frame())
+  paths <- file.path(dir, "cars.rds")
+  writeLines("a", paths)
+  rec <- sf_mock_transport(list = sf_fixture_listing())
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder, .package = "pinsExtras"
+  )
+  withr::local_options(pins.quiet = TRUE)
+
+  expect_error(
+    pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = TRUE, x = NULL
+    ),
+    class = "pinsExtras_invalid_upload_set"
+  )
+  expect_length(rec$calls, 0L)
+})
+
+test_that(
+  "well-formed metadata still writes with one LIST and two PUT",
+  {
+    board <- sf_mock_board()
+    meta <- list(
+      api_version = 1L, file = "cars.rds", file_size = 12L,
+      created = "20240102T000000Z", pin_hash = "abcdef0123456789",
+      type = "rds"
+    )
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- file.path(dir, "cars.rds")
+    writeLines("a", paths)
+    rec <- sf_mock_transport(list = sf_fixture_listing())
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+    withr::local_options(pins.quiet = TRUE)
+
+    out <- pinsExtras:::pin_store.pins_board_sf_stage(
+      board, "cars", paths, meta, versioned = FALSE, x = NULL
+    )
+
+    expect_identical(out, "cars")
+    expect_length(grep("^LIST ", rec$calls), 1L)
+    expect_length(grep("^PUT ", rec$calls), 2L)
+    expect_length(grep("^REMOVE ", rec$calls), 0L)
+  }
+)

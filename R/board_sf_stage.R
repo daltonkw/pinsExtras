@@ -346,6 +346,29 @@ pin_store.pins_board_sf_stage <- function(
   sf_check_pin_name(name)
   sf_check_upload_set(name, paths, metadata)
 
+  # The version this write will publish must be one discovery can later
+  # resolve. SEC-06: metadata whose timestamp will not parse is otherwise
+  # accepted, uploaded, and the old version deleted, leaving an unreadable
+  # version behind. Reject it before the first PUT, so nothing moves and
+  # nothing is deleted. Names the two responsible fields but never echoes
+  # their values, which are attacker-controlled.
+  version <- sf_version_name(metadata)
+  parsed <- sf_version_from_path(version)
+  if (is.na(parsed$created) | is.na(parsed$hash)) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "The metadata does not produce a discoverable version.",
+        "i" = paste0(
+          "The {.code created} and {.code pin_hash} fields must both be",
+          " present and valid."
+        )
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = rlang::caller_env()
+    )
+  }
+
   # Resolve the new version and do exactly one pin-scoped listing. Both the
   # plan below and the collision check read the same listing, so neither
   # lists again. A published duplicate is caught by sf_version_plan(), an
