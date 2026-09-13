@@ -20,11 +20,14 @@ This is ideal for organizations that need to share pins within Snowflake without
 
 -   ✅ Full [pins](https://pins.rstudio.com) API compatibility (`pin_write()`, `pin_read()`, `pin_list()`, etc.)
 -   ✅ Automatic versioning with `pin_versions()`
--   ✅ Multiple data formats (RDS, CSV, JSON, Parquet, Arrow, qs)
+-   ✅ Every storage type `pins` supports, including `rds`, `csv`, `json`,
+    `parquet`, `arrow` and `qs2` (`qs` is deprecated upstream in favour of
+    `qs2`), plus multi-file pins via `pin_upload()`/`pin_download()`
 -   ✅ Metadata preservation (tags, descriptions, URLs)
 -   ✅ JWT authentication support for secure Snowflake connections
 -   ✅ Connection health monitoring with helpful error messages
--   ✅ Comprehensive test suite
+-   ✅ 589 offline tests that need no Snowflake connection, plus an opt-in
+    integration suite that runs against a real stage
 
 ## Installation
 
@@ -247,6 +250,106 @@ External stages backed by cloud storage (S3, Azure Blob Storage, Google Cloud St
 
 For external stages, use the native cloud board implementations in the [pins](https://pins.rstudio.com) package: - **S3-backed stages** → [`board_s3()`](https://pins.rstudio.com/reference/board_s3.html) - **Azure-backed stages** → [`board_azure()`](https://pins.rstudio.com/reference/board_azure.html) - **GCS-backed stages** → [`board_gcs()`](https://pins.rstudio.com/reference/board_gcs.html)
 
+## How publication works
+
+A pin version is published in a specific order, and that order is the reason
+an interrupted write cannot corrupt a pin.
+
+1.  Payload files are uploaded to a new version directory.
+2.  The `data.txt` metadata marker is uploaded **last**.
+
+A version counts as published only once its marker exists. Every discovery
+path -- `pin_list()`, `pin_exists()`, `pin_versions()`, `pin_meta()`,
+`pin_read()` -- applies that same definition, so a half-written version is
+invisible rather than broken. The previous version stays readable throughout.
+
+Uploads never overwrite. Retrying into a directory that already holds a failed
+attempt's files fails loudly instead of mixing two attempts together.
+
+**Writes to one pin are serialized: one writer at a time.** Writes to
+different pins may run concurrently. If two writers produce the same version
+id for the same pin, that is reported as an error rather than merged.
+
+### Unversioned replacement
+
+`pin_write(board, x, "name", versioned = FALSE)` uploads the new version
+*before* removing the old one, so the pin is never absent. If the old version
+cannot be confirmed removed afterwards, the write still succeeds and you get a
+warning naming the exact version to read:
+
+``` r
+#> Warning: Published pin "cars" version "20250101T120001Z-bcdef", but cleanup is
+#> incomplete.
+#> i These old versions still have files: "20250101T120000Z-abcde".
+#> i Read the new version explicitly with
+#>   `pin_read(board, "cars", version = "20250101T120001Z-bcdef")`.
+```
+
+A successful publication is never turned into an error by a cleanup problem.
+
+## Orphaned versions
+
+Because a version without `data.txt` is not published, an interrupted write
+leaves files that discovery cannot see. `pin_delete()` will report the pin as
+missing:
+
+``` r
+pin_delete(board, "cars")
+#> Error: Can't find pin called "cars"
+```
+
+That is deliberate. `pin_version_delete()` is the way to remove such a
+directory: it performs no listing and no existence check.
+
+``` r
+# Every version directory on the stage for this pin, published or not.
+sf_all_version_dirs <- function(board, name) {
+  listing <- pinsExtras:::sf_stage_list(board, name)
+  rel <- pinsExtras:::sf_board_relative(
+    listing, pinsExtras:::sf_normalize_path(board)
+  )
+  unique(basename(dirname(rel$name)))
+}
+
+# The orphans are the directories discovery cannot see.
+all_dirs <- sf_all_version_dirs(board, "cars")
+published <- pin_versions(board, "cars")$version
+orphans   <- setdiff(all_dirs, published)
+orphans
+#> [1] "20250101T120000Z-abcde"
+
+# Remove them:
+for (v in orphans) pin_version_delete(board, "cars", v)
+```
+
+Version directories whose names are malformed are ignored by discovery rather
+than reported as versions, and `pin_version_delete()` removes those too.
+
+## Deleting
+
+Deletion is scoped exactly: a pin named `cars` cannot reach a pin named
+`cars_extra`, and removing one file cannot remove a similarly named sibling.
+
+`pin_delete()` accepts several names and processes them **in order, deleting
+as it goes**, matching upstream `pins`. There is no all-or-nothing guarantee
+across the vector:
+
+``` r
+pin_delete(board, c("cars", ""))
+#> cars is deleted, then:
+#> Error: `names` must be non-empty strings
+```
+
+If you need all-or-nothing, validate the names yourself before calling.
+
+## Caching
+
+Reads cache locally under `pins::board_cache_path()`. The cache is keyed by
+pin and version, and because version ids are immutable a cached version is
+never stale. Cache *invalidation* across processes is not coordinated: two R
+sessions each keep their own cache directory. Reducing repeat downloads
+further is follow-on work and is not part of this release.
+
 ## Troubleshooting
 
 <details>
@@ -309,15 +412,36 @@ board <- board_sf_stage(conn, stage = "@~")
 
 ## Testing
 
-The package attempts to provide comprehensive test coverage: - **unit tests** (no Snowflake connection required) - **integration tests** (require Snowflake credentials)
+Two suites:
 
-Integration tests are automatically skipped unless `PINS_SF_*` environment variables are set. They test full workflows (read/write/version/delete) and clean up after themselves.
+-   **offline tests** -- no Snowflake connection, no network, no credentials.
+    These are the ones you run while developing.
+-   **integration tests** -- talk to a real Snowflake account, create objects
+    and delete them again.
 
-Run tests locally:
+Run the offline suite:
 
-``` r
-devtools::test()
+``` sh
+Rscript --vanilla -e '.libPaths(c("rv/library/4.5/x86_64/noble", .libPaths())); devtools::test()'
 ```
+
+Integration tests are **opt-in**. They skip unless you set
+`PINS_SF_RUN_INTEGRATION=true`, in addition to the usual `PINS_SF_*`
+credentials:
+
+``` sh
+PINS_SF_RUN_INTEGRATION=true Rscript -e 'devtools::test()'
+```
+
+Having credentials in your environment is deliberately **not** enough to
+trigger them. R reads `.Renviron` on startup, so any R process launched from
+this directory has working Snowflake credentials in scope whether or not that
+was intended; these tests write to and delete from a real stage, so they
+require an explicit opt-in that nothing sets by accident. Pass the variable on
+the command line, as above, rather than exporting it into your shell.
+
+Each integration test works inside its own unique stage prefix and deletes
+that prefix afterwards.
 
 Run R CMD check:
 

@@ -61,11 +61,19 @@
 #' * Single-value data (scalars) and complex nested structures work as expected.
 #'
 #' **Concurrent Access**:
-#' * With `versioned = TRUE` (default), concurrent writes create separate
-#'   versions safely. Each write generates a unique version based on timestamp
-#'   and content hash.
-#' * With `versioned = FALSE`, concurrent writes follow last-write-wins behavior.
-#'   The most recent write will overwrite earlier writes.
+#' * Writes to a single pin are **not** safe to run concurrently. The contract
+#'   is serialized per pin: one writer at a time. Writes to *different* pins
+#'   may run at the same time.
+#' * A version id is derived from a timestamp and a content hash, so two
+#'   writers of the same content in the same second produce the *same* id.
+#'   That is detected and raised as an error rather than merging two payloads
+#'   into one version directory. It is a collision report, not a guarantee of
+#'   safe interleaving.
+#' * With `versioned = FALSE`, a replacement uploads the new version before
+#'   removing the old one, so the pin is never absent. Two concurrent
+#'   replacements are still unsupported and may leave an extra version
+#'   directory behind; use `pin_versions()` and `pin_version_delete()` to
+#'   inspect and clean up.
 #'
 #' **Connection Management**:
 #' * Snowflake connections can become invalid due to timeouts or network issues.
