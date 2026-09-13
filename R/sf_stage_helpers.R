@@ -472,17 +472,11 @@ sf_stage_exists <- function(board, path) {
   any(listing$name == normalised & !is.na(listing$name))
 }
 
-sf_stage_delete <- function(board, path) {
-  target <- sf_stage_path(board, path)
-  sql <- sprintf("REMOVE %s", target)
-  sf_stage_cmd(board, sql)
-}
-
 # Delete a directory and everything under it from the stage.
 #
-# The only difference from sf_stage_delete() is the trailing slash: it
-# scopes the REMOVE to the directory. Without it Snowflake matches by
-# prefix and "cars" would also remove a sibling named "cars_extra".
+# The trailing slash is what scopes the REMOVE to the directory. Without it
+# Snowflake matches by prefix and "cars" would also remove a sibling named
+# "cars_extra".
 sf_stage_delete_dir <- function(board, dir, call = rlang::caller_env()) {
   # Guard against the stage root, not the board root: a board with a path
   # ("team-data") is allowed to delete that whole path with dir = "".
