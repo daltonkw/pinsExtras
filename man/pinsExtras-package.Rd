@@ -11,5 +11,10 @@ Extra board implementations for the \code{pins} package.
 \author{
 \strong{Maintainer}: Kevin Dalton \email{_._@example.com}
 
+Authors:
+\itemize{
+  \item Kevin Dalton \email{_._@example.com}
+}
+
 }
 \keyword{internal}

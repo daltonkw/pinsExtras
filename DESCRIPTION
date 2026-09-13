@@ -8,7 +8,6 @@ Description: Extra board implementations for the pins package, starting with a
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Imports:
     cli,
     DBI,
@@ -25,3 +24,4 @@ Imports:
 Suggests:
     testthat (>= 3.2.0)
 Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0
