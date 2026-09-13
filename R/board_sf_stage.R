@@ -422,6 +422,14 @@ pin_store.pins_board_sf_stage <- function(
   if (plan$action == "replace") {
     remaining <- sf_cleanup_old_versions(board, name, plan$old_versions)
     if (length(remaining) > 0L) {
+      read_call <- rlang::expr(
+        pin_read(board, !!name, version = !!version)
+      )
+      code <- paste(deparse(read_call), collapse = "")
+      # Deparsed text may contain { or }, which cli would read as
+      # interpolation; double them so cli renders them literally.
+      code <- gsub("{", "{{", code, fixed = TRUE)
+      code <- gsub("}", "}}", code, fixed = TRUE)
       cli::cli_warn(
         c(
           paste0(
@@ -431,7 +439,7 @@ pin_store.pins_board_sf_stage <- function(
           "i" = "These old versions still have files: {.val {remaining}}.",
           "i" = paste0(
             "Read the new version explicitly with ",
-            "{.code pin_read(board, \"{name}\", version = \"{version}\")}."
+            "{.code {code}}."
           )
         ),
         class = "pinsExtras_cleanup_incomplete"

@@ -376,20 +376,41 @@ sf_check_connection <- function(board, call = rlang::caller_env()) {
       ">" = "To reconnect, create a new board with a fresh connection:"
     )
 
-    # Add reconnection guidance if connect_args are available
-    if (!is.null(board$connect_args)) {
-      msg <- c(
-        msg,
-        " " = "  conn <- DBI::dbConnect(odbc::odbc(), ...)",
-        " " = "  board <- board_sf_stage(conn, stage = \"{board$stage}\", path = \"{board$path}\", connect_args = ...)"
+    # Build the board_sf_stage() call as an R expression so the stage and
+    # path become R string literals, never text pasted into code. Each
+    # value is spliced with !! and deparsed, so an injection such as
+    # x\"); message(\"X\") parses back to exactly one statement.
+    # `...` is not a value, so it is spliced in as a SYMBOL rather than
+    # appended as text: deparse() closes the call, and text pasted after
+    # that lands outside the parentheses and does not parse.
+    board_call <- if (is.null(board$connect_args)) {
+      rlang::expr(
+        board_sf_stage(conn, stage = !!board$stage, path = !!board$path)
       )
     } else {
-      msg <- c(
-        msg,
-        " " = "  conn <- DBI::dbConnect(odbc::odbc(), ...)",
-        " " = "  board <- board_sf_stage(conn, stage = \"{board$stage}\", path = \"{board$path}\")"
+      rlang::expr(
+        board_sf_stage(
+          conn,
+          stage = !!board$stage,
+          path = !!board$path,
+          connect_args = !!rlang::sym("...")
+        )
       )
     }
+    code <- paste(deparse(board_call), collapse = "")
+
+    # Deparsed text may contain { or } (a valid path segment), which cli
+    # would read as interpolation. Double them so cli renders them
+    # literally; ordinary stage and path values have no braces, so the
+    # rendered line is unchanged. This is a display-only value, never SQL.
+    code <- gsub("{", "{{", code, fixed = TRUE)
+    code <- gsub("}", "}}", code, fixed = TRUE)
+
+    msg <- c(
+      msg,
+      " " = "  conn <- DBI::dbConnect(odbc::odbc(), ...)",
+      " " = paste0("  board <- ", code)
+    )
 
     cli::cli_abort(msg, call = call)
   }

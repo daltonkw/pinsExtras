@@ -590,3 +590,356 @@ test_that(
     expect_length(grep("^REMOVE ", rec$calls), 0L)
   }
 )
+
+make_clean_meta <- function() {
+  list(
+    api_version = 1L,
+    file = c("cars.rds", "wheels.rds"),
+    file_size = 12L,
+    created = "20240102T000000Z",
+    pin_hash = "zzz990000000",
+    type = "rds"
+  )
+}
+
+parsed_read_call <- function(msg) {
+  msg <- cli::ansi_strip(msg)
+  hit <- grep("pin_read\\(", msg, fixed = FALSE)
+  text <- msg[[hit[[1L]]]]
+  parse(text = regmatches(
+    text,
+    regexpr("pin_read\\(.*\\)", text, perl = TRUE)
+  )[[1L]])
+}
+
+# ---- Site 1: reconnection guidance must parse to exactly one statement --
+# The board_sf_stage() call is built with rlang::expr() and deparse(), so the
+# stage and path are R string literals. An injection pasted into `path` must
+# therefore parse back to a single statement, not a second call.
+
+test_that(
+  "the reconnection guidance parses to one statement for an ordinary path",
+  {
+    library(DBI)
+    withr::local_options(cli.width = 300)
+    methods::setClass(
+      "s5conn",
+      contains = "DBIConnection"
+    )
+    methods::setMethod(
+      "dbIsValid",
+      "s5conn",
+      function(dbObj, ...) FALSE
+    )
+    board <- pinsExtras:::board_sf_stage(
+      conn = new("s5conn"),
+      stage = "@~",
+      path = "prod"
+    )
+    cond <- tryCatch(
+      pinsExtras:::sf_check_connection(board),
+      error = function(e) e
+    )
+    expect_true(inherits(cond, "error"))
+    out <- cli::ansi_strip(conditionMessage(cond))
+    line <- strsplit(out, "\n", fixed = TRUE)[[1L]]
+    line <- line[grepl("board_sf_stage", line, fixed = TRUE)]
+    expect_length(line, 1L)
+    expect_length(parse(text = line), 1L)
+  }
+)
+
+test_that(
+  "the reconnection guidance escapes a double quote in the path, one stmt",
+  {
+    library(DBI)
+    withr::local_options(cli.width = 300)
+    methods::setClass(
+      "s5conn",
+      contains = "DBIConnection"
+    )
+    methods::setMethod(
+      "dbIsValid",
+      "s5conn",
+      function(dbObj, ...) FALSE
+    )
+    board <- pinsExtras:::board_sf_stage(
+      conn = new("s5conn"),
+      stage = "@~",
+      path = paste0("a", '"', "b")
+    )
+    cond <- tryCatch(
+      pinsExtras:::sf_check_connection(board),
+      error = function(e) e
+    )
+    expect_true(inherits(cond, "error"))
+    out <- cli::ansi_strip(conditionMessage(cond))
+    line <- strsplit(out, "\n", fixed = TRUE)[[1L]]
+    line <- line[grepl("board_sf_stage", line, fixed = TRUE)]
+    expect_length(line, 1L)
+    expect_length(parse(text = line), 1L)
+  }
+)
+
+test_that(
+  "the reconnection guidance escapes a backtick in the path, one stmt",
+  {
+    library(DBI)
+    withr::local_options(cli.width = 300)
+    methods::setClass(
+      "s5conn",
+      contains = "DBIConnection"
+    )
+    methods::setMethod(
+      "dbIsValid",
+      "s5conn",
+      function(dbObj, ...) FALSE
+    )
+    board <- pinsExtras:::board_sf_stage(
+      conn = new("s5conn"),
+      stage = "@~",
+      path = paste0("a", "`", "b")
+    )
+    cond <- tryCatch(
+      pinsExtras:::sf_check_connection(board),
+      error = function(e) e
+    )
+    expect_true(inherits(cond, "error"))
+    out <- cli::ansi_strip(conditionMessage(cond))
+    line <- strsplit(out, "\n", fixed = TRUE)[[1L]]
+    line <- line[grepl("board_sf_stage", line, fixed = TRUE)]
+    expect_length(line, 1L)
+    expect_length(parse(text = line), 1L)
+  }
+)
+
+test_that(
+  "the reconnection guidance neutralises a statement injection, one stmt",
+  {
+    library(DBI)
+    withr::local_options(cli.width = 300)
+    methods::setClass(
+      "s5conn",
+      contains = "DBIConnection"
+    )
+    methods::setMethod(
+      "dbIsValid",
+      "s5conn",
+      function(dbObj, ...) FALSE
+    )
+    injection <- paste0(
+      "x\"); message(\"AUDIT_SENTINEL\"); #"
+    )
+    board <- pinsExtras:::board_sf_stage(
+      conn = new("s5conn"),
+      stage = "@~",
+      path = injection
+    )
+    cond <- tryCatch(
+      pinsExtras:::sf_check_connection(board),
+      error = function(e) e
+    )
+    expect_true(inherits(cond, "error"))
+    out <- cli::ansi_strip(conditionMessage(cond))
+    line <- strsplit(out, "\n", fixed = TRUE)[[1L]]
+    line <- line[grepl("board_sf_stage", line, fixed = TRUE)]
+    expect_length(line, 1L)
+    parsed <- parse(text = line)
+    expect_length(parsed, 1L)
+    # The injected value is captured and embedded as one R string literal, so
+    # parse() above returns a single statement and no message( becomes a call.
+    expect_true(grepl("AUDIT_SENTINEL", line, fixed = TRUE))
+    expect_true(grepl('\\', line, fixed = TRUE))
+  }
+)
+
+# ---- Site 2: the cleanup pin_read() suggestion must parse to one stmt -----
+# Same shape as test-sf_publish.R: drive pin_store() through the mock transport
+# so cleanup reports an old version remaining and warns. The pin name carries
+# the injection; the read call is rebuilt with deparse() so it parses to one.
+# cli.width is wide so the call is not wrapped across lines and breaks parse.
+#
+# The mock listing lists <name>/<old version>/data.txt, so the injected pin
+# name is actually discovered and the write is a replace that reaches cleanup.
+
+test_that(
+  "the cleanup read call parses to one statement for an ordinary name",
+  {
+    withr::local_options(pins.quiet = TRUE, cli.width = 300)
+    name <- "cars"
+    board <- sf_mock_board(versioned = TRUE)
+    oldv <- "20240101T000001Z-oldv"
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- c(file.path(dir, "cars.rds"), file.path(dir, "wheels.rds"))
+    writeLines("a", paths[[1]])
+    writeLines("b", paths[[2]])
+    rec <- sf_mock_transport(
+      list = function(sql) {
+        sf_fixture_listing(paste0(name, "/", oldv, "/data.txt"), board = board)
+      }
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+
+    w <- expect_warning(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, name, paths, make_clean_meta(), versioned = FALSE, x = NULL
+      ),
+      class = "pinsExtras_cleanup_incomplete"
+    )
+    expect_length(parsed_read_call(conditionMessage(w)), 1L)
+  }
+)
+
+test_that(
+  "the cleanup read call parses to one statement for a quoted name",
+  {
+    withr::local_options(pins.quiet = TRUE, cli.width = 300)
+    name <- paste0("cars", '"', "x")
+    board <- sf_mock_board(versioned = TRUE)
+    oldv <- "20240101T000001Z-oldv"
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- c(file.path(dir, "cars.rds"), file.path(dir, "wheels.rds"))
+    writeLines("a", paths[[1]])
+    writeLines("b", paths[[2]])
+    rec <- sf_mock_transport(
+      list = function(sql) {
+        sf_fixture_listing(paste0(name, "/", oldv, "/data.txt"), board = board)
+      }
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+
+    w <- expect_warning(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, name, paths, make_clean_meta(), versioned = FALSE, x = NULL
+      ),
+      class = "pinsExtras_cleanup_incomplete"
+    )
+    expect_length(parsed_read_call(conditionMessage(w)), 1L)
+  }
+)
+
+test_that(
+  "the cleanup read call parses to one statement for a backticked name",
+  {
+    withr::local_options(pins.quiet = TRUE, cli.width = 300)
+    name <- paste0("cars", "`", "x")
+    board <- sf_mock_board(versioned = TRUE)
+    oldv <- "20240101T000001Z-oldv"
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- c(file.path(dir, "cars.rds"), file.path(dir, "wheels.rds"))
+    writeLines("a", paths[[1]])
+    writeLines("b", paths[[2]])
+    rec <- sf_mock_transport(
+      list = function(sql) {
+        sf_fixture_listing(paste0(name, "/", oldv, "/data.txt"), board = board)
+      }
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+
+    w <- expect_warning(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, name, paths, make_clean_meta(), versioned = FALSE, x = NULL
+      ),
+      class = "pinsExtras_cleanup_incomplete"
+    )
+    expect_length(parsed_read_call(conditionMessage(w)), 1L)
+  }
+)
+
+test_that(
+  "the cleanup read call neutralises a statement injection, one stmt",
+  {
+    withr::local_options(pins.quiet = TRUE, cli.width = 300)
+    name <- paste0("cars\"); message(\"AUDIT_SENTINEL\"); #")
+    board <- sf_mock_board(versioned = TRUE)
+    oldv <- "20240101T000001Z-oldv"
+    dir <- withr::local_tempdir(.local_envir = parent.frame())
+    paths <- c(file.path(dir, "cars.rds"), file.path(dir, "wheels.rds"))
+    writeLines("a", paths[[1]])
+    writeLines("b", paths[[2]])
+    rec <- sf_mock_transport(
+      list = function(sql) {
+        sf_fixture_listing(paste0(name, "/", oldv, "/data.txt"), board = board)
+      }
+    )
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder, .package = "pinsExtras"
+    )
+
+    w <- expect_warning(
+      pinsExtras:::pin_store.pins_board_sf_stage(
+        board, name, paths, make_clean_meta(), versioned = FALSE, x = NULL
+      ),
+      class = "pinsExtras_cleanup_incomplete"
+    )
+    parsed <- parsed_read_call(conditionMessage(w))
+    expect_length(parsed, 1L)
+    # The injected payload is now an R string literal, so it is present in the
+    # deparse() output but escaped, never a second call.
+    expect_true(grepl("AUDIT_SENTINEL", conditionMessage(w), fixed = TRUE))
+  }
+)
+
+# SEC-10, the branch that runs for every board the constructor built.
+# board_sf_stage() always stores connect_args, so this is the common path;
+# deparse() closes the call, and text appended after that lands outside the
+# parentheses. The guidance must parse as exactly one statement.
+
+sf_sec_dead_board <- function(path, connect_args) {
+  methods::setClass(
+    "sf_sec_conn",
+    contains = "DBIConnection",
+    where = topenv(environment())
+  )
+  methods::setMethod(
+    "dbIsValid", "sf_sec_conn",
+    function(dbObj, ...) FALSE,
+    where = topenv(environment())
+  )
+  structure(
+    list(
+      stage = "@~", path = path, connect_args = connect_args,
+      versioned = TRUE, conn = methods::new("sf_sec_conn")
+    ),
+    class = c("pins_board_sf_stage", "pins_board")
+  )
+}
+
+sf_sec_guidance <- function(board) {
+  msg <- cli::ansi_strip(
+    tryCatch(
+      pinsExtras:::sf_check_connection(board),
+      error = function(e) conditionMessage(e)
+    )
+  )
+  lines <- strsplit(msg, "\n", fixed = TRUE)[[1]]
+  hit <- grep("board <- ", lines, fixed = TRUE)
+  code <- paste(lines[seq(hit, length(lines))], collapse = " ")
+  trimws(sub("^.*?board <- ", "", code))
+}
+
+test_that("reconnection guidance parses as one statement with connect_args", {
+  withr::local_options(cli.width = 300)
+  for (path in list("team-data", "a\"b", "a`b", "x\"); message(\"X\"); #")) {
+    board <- sf_sec_dead_board(path, list(Driver = "x"))
+    code <- sf_sec_guidance(board)
+    expect_match(code, "connect_args = ...", fixed = TRUE, info = path)
+    expect_length(parse(text = code), 1L)
+  }
+})
+
+test_that("reconnection guidance parses as one statement without them", {
+  withr::local_options(cli.width = 300)
+  for (path in list("team-data", "x\"); message(\"X\"); #")) {
+    board <- sf_sec_dead_board(path, NULL)
+    code <- sf_sec_guidance(board)
+    expect_no_match(code, "connect_args", fixed = TRUE, info = path)
+    expect_length(parse(text = code), 1L)
+  }
+})
