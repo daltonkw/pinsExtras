@@ -77,8 +77,9 @@ a single stage, similar to how \code{prefix} works for S3 boards.
 (\verb{@database.schema.mystage}). The \code{@} prefix is added automatically if
 omitted.
 \item \code{board_sf_stage()} is powered by the DBI and odbc packages, which are
-suggested dependencies of pinsExtras. You also need the Snowflake ODBC
-driver installed on your system.
+required dependencies of pinsExtras and are installed with it. You also
+need the Snowflake ODBC driver installed on your system, which is not an
+R package and cannot be installed by \code{install.packages()}.
 }
 }
 
@@ -100,11 +101,19 @@ fully supported and will round-trip correctly.
 
 \strong{Concurrent Access}:
 \itemize{
-\item With \code{versioned = TRUE} (default), concurrent writes create separate
-versions safely. Each write generates a unique version based on timestamp
-and content hash.
-\item With \code{versioned = FALSE}, concurrent writes follow last-write-wins behavior.
-The most recent write will overwrite earlier writes.
+\item Writes to a single pin are \strong{not} safe to run concurrently. The contract
+is serialized per pin: one writer at a time. Writes to \emph{different} pins
+may run at the same time.
+\item A version id is derived from a timestamp and a content hash, so two
+writers of the same content in the same second produce the \emph{same} id.
+That is detected and raised as an error rather than merging two payloads
+into one version directory. It is a collision report, not a guarantee of
+safe interleaving.
+\item With \code{versioned = FALSE}, a replacement uploads the new version before
+removing the old one, so the pin is never absent. Two concurrent
+replacements are still unsupported and may leave an extra version
+directory behind; use \code{pin_versions()} and \code{pin_version_delete()} to
+inspect and clean up.
 }
 
 \strong{Connection Management}:
