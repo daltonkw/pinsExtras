@@ -42,6 +42,38 @@
 #'   (`@database.schema.mystage`). The `@` prefix is added automatically if
 #'   omitted.
 #'
+#' # Security
+#'
+#' **`connect_args` is reproduced verbatim.** Whatever you pass is stored on
+#' the board, and both [pins::board_deparse()] and ordinary R serialization
+#' reproduce it. A password or token in `connect_args` will therefore appear
+#' in deparsed reconstruction code, in saved sessions, in `.RData` files and
+#' in anything that serializes the board. Prefer arguments that are not
+#' secret, or that name an environment variable rather than carrying its
+#' value. `PRIV_KEY_FILE` exposes the key's location, not its contents, which
+#' is usually the better trade.
+#'
+#' **The cache is keyed by stage and path only.** The default cache directory
+#' is derived from the textual stage and board path, and from nothing else --
+#' not the account, not the user, not the database or schema that an
+#' unqualified stage name resolves to. Two boards addressing different
+#' Snowflake accounts with the same stage text share a cache directory, and
+#' the second write of a given version id replaces the first one's files.
+#' Do not share a cache directory across accounts: pass a distinct `cache`
+#' to each board when the same stage text can mean different things.
+#'
+#' **Cache directories are created with ambient permissions.** They are not
+#' forced to be private, so the umask in effect decides who can read
+#' downloaded pin contents. If the data is sensitive, put the cache somewhere
+#' you control the permissions of.
+#'
+#' **Publication uncertainty is not signalled for every failure.** If the
+#' metadata upload reaches Snowflake but the response is lost, you get an
+#' ordinary transport error rather than the "publication uncertain" guidance.
+#' Old versions are still preserved and nothing is deleted automatically, but
+#' recovery code cannot always distinguish an uncertain publication from a
+#' definite failure. Check [pin_versions()] after an interrupted write.
+#'
 #' * `board_sf_stage()` is powered by the DBI and odbc packages, which are
 #'   required dependencies of pinsExtras and are installed with it. You also
 #'   need the Snowflake ODBC driver installed on your system, which is not an
@@ -61,9 +93,16 @@
 #' * Single-value data (scalars) and complex nested structures work as expected.
 #'
 #' **Concurrent Access**:
-#' * Writes to a single pin are **not** safe to run concurrently. The contract
-#'   is serialized per pin: one writer at a time. Writes to *different* pins
-#'   may run at the same time.
+#' * Mutation of a single pin is **not** safe to run concurrently. The contract
+#'   is serialized per pin and covers *every* mutator -- writers and deleters
+#'   alike, in any combination. Operations on *different* pins may run at the
+#'   same time.
+#' * Readers get no snapshot isolation. A reader can resolve a version and
+#'   then have a concurrent replacement delete it before the read completes.
+#' * Collision detection is not promised for every interleaving. Two writers
+#'   can both pass preflight, and two unversioned replacements can each
+#'   capture the same old version and leave two new ones. `OVERWRITE=FALSE`
+#'   governs individual files, not ownership of a whole version.
 #' * A version id is derived from a timestamp and a content hash, so two
 #'   writers of the same content in the same second produce the *same* id.
 #'   That is detected and raised as an error rather than merging two payloads

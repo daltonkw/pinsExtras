@@ -69,6 +69,67 @@ All three were found by running against a real Snowflake stage, and none of them
 
 - **Downloads matched by prefix.** Fetching a file named `report` also matched `report.pdf` in the same version, returned two results, and aborted the read. A pin uploaded with both files could not be read back. Downloads now name the directory and select the one file by pattern.
 
+## Security hardening
+
+An independent security review of the release candidate found twelve issues.
+The ones that changed behaviour are fixed here; the rest are documented in
+`?board_sf_stage` and the README so you can judge them for yourself.
+
+* **A version argument could delete a whole board.** `pin_version_delete()`
+  accepted any string, and `"/"` collapsed to a delete of every version, or
+  of the entire board prefix. Pin names and version ids supplied to
+  `pin_delete()` and `pin_version_delete()` must now be a single path
+  segment: no separators, no `.` or `..`. Malformed-but-safe version names
+  such as `bogus-def12` still delete, because removing an orphaned version
+  directory depends on it.
+
+* **Names discovered from the stage could escape the local cache.** A pin or
+  version whose name contained `..` or a separator produced a cache path
+  outside the board's cache directory. Such entries are now dropped from
+  discovery: they do not appear in `pin_list()` or `pin_versions()` and
+  cannot be read.
+
+* **Downloaded metadata could redirect a read.** The `file` field in a pin's
+  metadata was used as given. Metadata naming `../../private.csv` would
+  fetch one file and return the name of another, which the reader then
+  resolved against your cache. The field must now be a list of plain file
+  names, each used exactly once, and anything else is an error rather than
+  being quietly trimmed.
+
+* **A write that could not be read could delete the version it replaced.**
+  Metadata whose timestamp does not parse produces a version discovery
+  cannot resolve. Such a write was accepted, uploaded, and allowed to remove
+  the previous version, leaving a pin with nothing readable in it. This is
+  now rejected before anything is uploaded.
+
+* **"Delete one file" could match files in subdirectories.** The patterns
+  used to fetch or remove a single file matched that name anywhere below the
+  location, so a nested file with the same name could be fetched instead of
+  the one asked for, or deleted alongside it. Both patterns are now anchored
+  to the exact directory.
+
+* **Recovery suggestions could carry extra code.** The reconnection hint and
+  the incomplete-cleanup warning build R code for you to copy. They pasted
+  the board path and pin name into that code as text, so a value containing
+  a quote could add a second statement to what you copied. Both are now
+  built as R expressions, so a value is always a string literal.
+
+* **Credential files could be packaged.** `R CMD build` does not read
+  `.gitignore`, so files such as `.env`, `*.pem` and `odbc.ini` in a
+  developer's checkout were eligible for a source tarball. They are now
+  excluded from the build as well.
+
+* **CI actions are pinned** to commit SHAs rather than moving tags, and the
+  workflow's permissions are narrowed to reading the repository.
+
+Documented rather than changed, because they are properties of the design
+rather than defects in it: `connect_args` is reproduced by `board_deparse()`
+and by serialization, so secrets in it travel; the cache directory is keyed
+by stage text and board path only, so it must not be shared across accounts;
+cache directories use ambient permissions; and the one-mutator-at-a-time
+contract covers deleters as well as writers, with no snapshot isolation for
+readers.
+
 ## Testing
 
 Integration tests talk to a real Snowflake account, create objects, and delete them. They are opt-in and skip unless you ask for them:

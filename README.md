@@ -272,7 +272,9 @@ A version counts as published only once its marker exists. Every discovery path 
 
 Uploads never overwrite. Retrying into a directory that already holds a failed attempt's files fails loudly instead of mixing two attempts together.
 
-**Writes to one pin are serialized: one writer at a time.** Writes to different pins may run concurrently. If two writers produce the same version id for the same pin, that is reported as an error rather than merged.
+**Mutation of one pin is serialized: one mutator at a time.** That covers writers *and* deleters, in any combination. Operations on different pins may run concurrently.
+
+This is a prerequisite you have to arrange, not something the package enforces. Two writers can both pass preflight; two unversioned replacements can each capture the same old version and leave two new ones; a reader can resolve a version and have a concurrent replacement delete it mid-read. `OVERWRITE=FALSE` governs individual files, not ownership of a whole version. Where the same version id is produced twice for one pin that *is* reported as an error rather than merged — but collision detection is not promised for every interleaving.
 
 ### Unversioned replacement
 
@@ -338,7 +340,33 @@ If you need all-or-nothing, validate the names yourself before calling.
 
 ## Caching
 
-Reads cache locally under `pins::board_cache_path()`. The cache is keyed by pin and version, and because version ids are immutable a cached version is never stale. Cache *invalidation* across processes is not coordinated: two R sessions each keep their own cache directory. Reducing repeat downloads further is follow-on work and is not part of this release.
+Reads cache locally under `pins::board_cache_path()`.
+
+**The cache directory is keyed by the stage text and the board path, and by nothing else.** Not the account, not the user behind `@~`, not the database or schema an unqualified stage name resolves to. Two boards pointing at *different Snowflake accounts* with the same stage text therefore share one cache directory, and the second write of a given version id replaces the first one's files. An earlier version of this README claimed sessions are isolated from each other; that was wrong.
+
+What follows from it:
+
+- Do not share a cache directory across accounts. Pass a distinct `cache` to each board when the same stage text can mean different things.
+- Cache directories are created with ambient permissions, not forced-private ones, so your umask decides who can read downloaded pin contents. If that matters, put the cache somewhere whose permissions you control.
+- Within one account the cache is keyed by pin and version, and version ids are immutable, so a cached version is not stale.
+
+Reducing repeat downloads, and giving the cache an identity that includes the connection, are follow-on work and are not part of this release.
+
+## Security notes
+
+**`connect_args` is reproduced verbatim.** Whatever you pass is stored on the board, and both `board_deparse()` and ordinary R serialization reproduce it. A password or token in `connect_args` will appear in deparsed reconstruction code, in saved sessions, in `.RData` files, and in anything else that serializes the board:
+
+``` r
+board <- board_sf_stage(conn, stage = "@~", connect_args = list(PWD = "hunter2"))
+deparse(board_deparse(board))
+#> ... PWD = "hunter2" ...
+```
+
+Prefer arguments that are not secret, or that name an environment variable rather than carrying its value. `PRIV_KEY_FILE` exposes the key's *location*, not its contents, which is usually the better trade. Ordinary board printing does not show these values; deparsing and serializing do.
+
+**Anyone who can write to the stage can author what you read.** A metadata marker establishes publication under this protocol, not authenticity. Another writer to the same prefix can replace payloads or author version metadata. `pin_read()` does not verify an independently trusted content hash unless you supply one. Treat write access to a board's prefix as equivalent to trust in its contents.
+
+**Publication uncertainty is not signalled for every failure.** If the metadata upload reaches Snowflake but its response is lost, you get an ordinary transport error rather than the "publication uncertain" guidance. Nothing is deleted automatically and old versions are preserved, but recovery code cannot always tell an uncertain publication from a definite failure. Check `pin_versions()` after an interrupted write.
 
 ## Troubleshooting
 
