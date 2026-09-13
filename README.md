@@ -18,16 +18,13 @@ This is ideal for organizations that need to share pins within Snowflake without
 
 ## Features
 
--   ✅ Full [pins](https://pins.rstudio.com) API compatibility (`pin_write()`, `pin_read()`, `pin_list()`, etc.)
--   ✅ Automatic versioning with `pin_versions()`
--   ✅ Every storage type `pins` supports, including `rds`, `csv`, `json`,
-    `parquet`, `arrow` and `qs2` (`qs` is deprecated upstream in favour of
-    `qs2`), plus multi-file pins via `pin_upload()`/`pin_download()`
--   ✅ Metadata preservation (tags, descriptions, URLs)
--   ✅ JWT authentication support for secure Snowflake connections
--   ✅ Connection health monitoring with helpful error messages
--   ✅ 589 offline tests that need no Snowflake connection, plus an opt-in
-    integration suite that runs against a real stage
+- ✅ Full [pins](https://pins.rstudio.com) API compatibility (`pin_write()`, `pin_read()`, `pin_list()`, etc.)
+- ✅ Automatic versioning with `pin_versions()`
+- ✅ Every storage type `pins` supports, including `rds`, `csv`, `json`, `parquet`, `arrow` and `qs2` (`qs` is deprecated upstream in favour of `qs2`), plus multi-file pins via `pin_upload()`/`pin_download()`
+- ✅ Metadata preservation (tags, descriptions, URLs)
+- ✅ JWT authentication support for secure Snowflake connections
+- ✅ Connection health monitoring with helpful error messages
+- ✅ 589 offline tests that need no Snowflake connection, plus an opt-in integration suite that runs against a real stage
 
 ## Installation
 
@@ -106,8 +103,8 @@ Detailed setup instructions for Windows and Linux are available in the sections 
 1.  Download from [Snowflake ODBC Downloads](https://developers.snowflake.com/odbc/)
 2.  Run the installer with default settings
 3.  Verify installation:
-    -   Press `Win + R` → type `odbcad32` → **Drivers** tab
-    -   Confirm `SnowflakeDSIIDriver` appears in the list
+    - Press `Win + R` → type `odbcad32` → **Drivers** tab
+    - Confirm `SnowflakeDSIIDriver` appears in the list
 
 ### Step 2: Set Up JWT Authentication
 
@@ -224,58 +221,62 @@ source ~/.bashrc
 
 ## Environment Variables Reference
 
-| Variable                   | Required | Description                                                    |
+| Variable | Required | Description |
 |----------------------|----------------------|----------------------------|
-| `PINS_SF_SERVER`           | **Yes**  | Snowflake account URL (e.g., `account.snowflakecomputing.com`) |
-| `PINS_SF_USER`             | **Yes**  | Snowflake username                                             |
-| `PINS_SF_AUTHENTICATOR`    | **Yes**  | Authentication method (`SNOWFLAKE_JWT` recommended)            |
-| `PINS_SF_PRIVATE_KEY_FILE` | **Yes**  | Path to JWT private key file                                   |
-| `PINS_SF_WAREHOUSE`        | **Yes**  | Compute warehouse name                                         |
-| `PINS_SF_DATABASE`         | No       | Default database                                               |
-| `PINS_SF_SCHEMA`           | No       | Default schema                                                 |
-| `PINS_SF_ROLE`             | No       | Snowflake role to use                                          |
-| `PINS_SF_STAGE`            | No       | Default stage name (default: `@~`)                             |
-| `PINS_SF_DRIVER`           | No       | Override ODBC driver name                                      |
-| `ODBCSYSINI`               | No       | Linux: path to `odbcinst.ini` directory                        |
+| `PINS_SF_SERVER` | **Yes** | Snowflake account URL (e.g., `account.snowflakecomputing.com`) |
+| `PINS_SF_USER` | **Yes** | Snowflake username |
+| `PINS_SF_AUTHENTICATOR` | **Yes** | Authentication method (`SNOWFLAKE_JWT` recommended) |
+| `PINS_SF_PRIVATE_KEY_FILE` | **Yes** | Path to JWT private key file |
+| `PINS_SF_WAREHOUSE` | **Yes** | Compute warehouse name |
+| `PINS_SF_DATABASE` | No | Default database |
+| `PINS_SF_SCHEMA` | No | Default schema |
+| `PINS_SF_ROLE` | No | Snowflake role to use |
+| `PINS_SF_STAGE` | No | Default stage name (default: `@~`) |
+| `PINS_SF_DRIVER` | No | Override ODBC driver name |
+| `ODBCSYSINI` | No | Linux: path to `odbcinst.ini` directory |
 
 ## Scope and Limitations
 
 ### Internal Stages Only
 
-This package is designed **exclusively for Snowflake internal stages**: - ✅ User stages (`@~`) - ✅ Named stages (`@my_stage`) - ✅ Table stages - ✅ Fully qualified stages (`@database.schema.stage`)
+This package is designed **exclusively for Snowflake internal stages**:
+
+- ✅ User stages (`@~`)
+
+- ✅ Named stages (`@my_stage`)
+
+- ✅ Table stages
+
+- ✅ Fully qualified stages (`@database.schema.stage`)
 
 ### External Stages Not Supported
 
 External stages backed by cloud storage (S3, Azure Blob Storage, Google Cloud Storage) are **out of scope**.
 
-For external stages, use the native cloud board implementations in the [pins](https://pins.rstudio.com) package: - **S3-backed stages** → [`board_s3()`](https://pins.rstudio.com/reference/board_s3.html) - **Azure-backed stages** → [`board_azure()`](https://pins.rstudio.com/reference/board_azure.html) - **GCS-backed stages** → [`board_gcs()`](https://pins.rstudio.com/reference/board_gcs.html)
+For external stages, use the native cloud board implementations in the [pins](https://pins.rstudio.com) package:
+
+- **S3-backed stages** → [`board_s3()`](https://pins.rstudio.com/reference/board_s3.html)
+
+- **Azure-backed stages** → [`board_azure()`](https://pins.rstudio.com/reference/board_azure.html)
+
+- **GCS-backed stages** → [`board_gcs()`](https://pins.rstudio.com/reference/board_gcs.html)
 
 ## How publication works
 
-A pin version is published in a specific order, and that order is the reason
-an interrupted write cannot corrupt a pin.
+A pin version is published in a specific order, and that order is the reason an interrupted write cannot corrupt a pin.
 
 1.  Payload files are uploaded to a new version directory.
 2.  The `data.txt` metadata marker is uploaded **last**.
 
-A version counts as published only once its marker exists. Every discovery
-path -- `pin_list()`, `pin_exists()`, `pin_versions()`, `pin_meta()`,
-`pin_read()` -- applies that same definition, so a half-written version is
-invisible rather than broken. The previous version stays readable throughout.
+A version counts as published only once its marker exists. Every discovery path -- `pin_list()`, `pin_exists()`, `pin_versions()`, `pin_meta()`, `pin_read()` -- applies that same definition, so a half-written version is invisible rather than broken. The previous version stays readable throughout.
 
-Uploads never overwrite. Retrying into a directory that already holds a failed
-attempt's files fails loudly instead of mixing two attempts together.
+Uploads never overwrite. Retrying into a directory that already holds a failed attempt's files fails loudly instead of mixing two attempts together.
 
-**Writes to one pin are serialized: one writer at a time.** Writes to
-different pins may run concurrently. If two writers produce the same version
-id for the same pin, that is reported as an error rather than merged.
+**Writes to one pin are serialized: one writer at a time.** Writes to different pins may run concurrently. If two writers produce the same version id for the same pin, that is reported as an error rather than merged.
 
 ### Unversioned replacement
 
-`pin_write(board, x, "name", versioned = FALSE)` uploads the new version
-*before* removing the old one, so the pin is never absent. If the old version
-cannot be confirmed removed afterwards, the write still succeeds and you get a
-warning naming the exact version to read:
+`pin_write(board, x, "name", versioned = FALSE)` uploads the new version *before* removing the old one, so the pin is never absent. If the old version cannot be confirmed removed afterwards, the write still succeeds and you get a warning naming the exact version to read:
 
 ``` r
 #> Warning: Published pin "cars" version "20250101T120001Z-bcdef", but cleanup is
@@ -289,17 +290,14 @@ A successful publication is never turned into an error by a cleanup problem.
 
 ## Orphaned versions
 
-Because a version without `data.txt` is not published, an interrupted write
-leaves files that discovery cannot see. `pin_delete()` will report the pin as
-missing:
+Because a version without `data.txt` is not published, an interrupted write leaves files that discovery cannot see. `pin_delete()` will report the pin as missing:
 
 ``` r
 pin_delete(board, "cars")
 #> Error: Can't find pin called "cars"
 ```
 
-That is deliberate. `pin_version_delete()` is the way to remove such a
-directory: it performs no listing and no existence check.
+That is deliberate. `pin_version_delete()` is the way to remove such a directory: it performs no listing and no existence check.
 
 ``` r
 # Every version directory on the stage for this pin, published or not.
@@ -322,17 +320,13 @@ orphans
 for (v in orphans) pin_version_delete(board, "cars", v)
 ```
 
-Version directories whose names are malformed are ignored by discovery rather
-than reported as versions, and `pin_version_delete()` removes those too.
+Version directories whose names are malformed are ignored by discovery rather than reported as versions, and `pin_version_delete()` removes those too.
 
 ## Deleting
 
-Deletion is scoped exactly: a pin named `cars` cannot reach a pin named
-`cars_extra`, and removing one file cannot remove a similarly named sibling.
+Deletion is scoped exactly: a pin named `cars` cannot reach a pin named `cars_extra`, and removing one file cannot remove a similarly named sibling.
 
-`pin_delete()` accepts several names and processes them **in order, deleting
-as it goes**, matching upstream `pins`. There is no all-or-nothing guarantee
-across the vector:
+`pin_delete()` accepts several names and processes them **in order, deleting as it goes**, matching upstream `pins`. There is no all-or-nothing guarantee across the vector:
 
 ``` r
 pin_delete(board, c("cars", ""))
@@ -344,11 +338,7 @@ If you need all-or-nothing, validate the names yourself before calling.
 
 ## Caching
 
-Reads cache locally under `pins::board_cache_path()`. The cache is keyed by
-pin and version, and because version ids are immutable a cached version is
-never stale. Cache *invalidation* across processes is not coordinated: two R
-sessions each keep their own cache directory. Reducing repeat downloads
-further is follow-on work and is not part of this release.
+Reads cache locally under `pins::board_cache_path()`. The cache is keyed by pin and version, and because version ids are immutable a cached version is never stale. Cache *invalidation* across processes is not coordinated: two R sessions each keep their own cache directory. Reducing repeat downloads further is follow-on work and is not part of this release.
 
 ## Troubleshooting
 
@@ -366,19 +356,19 @@ further is follow-on work and is not part of this release.
 
 <summary>"Authentication failed" error</summary>
 
--   Verify the public key is registered in Snowflake:
+- Verify the public key is registered in Snowflake:
 
-    ``` sql
-    DESC USER your_username;
-    ```
+  ``` sql
+  DESC USER your_username;
+  ```
 
-    Look for `RSA_PUBLIC_KEY` property
+  Look for `RSA_PUBLIC_KEY` property
 
--   Check that `PINS_SF_PRIVATE_KEY_FILE` points to the correct file
+- Check that `PINS_SF_PRIVATE_KEY_FILE` points to the correct file
 
--   Ensure the private key was generated **without a passphrase**
+- Ensure the private key was generated **without a passphrase**
 
--   Verify your username matches exactly (case-sensitive)
+- Verify your username matches exactly (case-sensitive)
 
 </details>
 
@@ -386,13 +376,13 @@ further is follow-on work and is not part of this release.
 
 <summary>"Warehouse does not exist" error</summary>
 
--   Verify the warehouse name matches exactly (case-sensitive)
+- Verify the warehouse name matches exactly (case-sensitive)
 
--   Check you have `USAGE` privilege on the warehouse:
+- Check you have `USAGE` privilege on the warehouse:
 
-    ``` sql
-    SHOW GRANTS ON WAREHOUSE your_warehouse;
-    ```
+  ``` sql
+  SHOW GRANTS ON WAREHOUSE your_warehouse;
+  ```
 
 </details>
 
@@ -414,10 +404,8 @@ board <- board_sf_stage(conn, stage = "@~")
 
 Two suites:
 
--   **offline tests** -- no Snowflake connection, no network, no credentials.
-    These are the ones you run while developing.
--   **integration tests** -- talk to a real Snowflake account, create objects
-    and delete them again.
+- **offline tests** -- no Snowflake connection, no network, no credentials. These are the ones you run while developing.
+- **integration tests** -- talk to a real Snowflake account, create objects and delete them again.
 
 Run the offline suite:
 
@@ -425,23 +413,15 @@ Run the offline suite:
 Rscript --vanilla -e '.libPaths(c("rv/library/4.5/x86_64/noble", .libPaths())); devtools::test()'
 ```
 
-Integration tests are **opt-in**. They skip unless you set
-`PINS_SF_RUN_INTEGRATION=true`, in addition to the usual `PINS_SF_*`
-credentials:
+Integration tests are **opt-in**. They skip unless you set `PINS_SF_RUN_INTEGRATION=true`, in addition to the usual `PINS_SF_*` credentials:
 
 ``` sh
 PINS_SF_RUN_INTEGRATION=true Rscript -e 'devtools::test()'
 ```
 
-Having credentials in your environment is deliberately **not** enough to
-trigger them. R reads `.Renviron` on startup, so any R process launched from
-this directory has working Snowflake credentials in scope whether or not that
-was intended; these tests write to and delete from a real stage, so they
-require an explicit opt-in that nothing sets by accident. Pass the variable on
-the command line, as above, rather than exporting it into your shell.
+Having credentials in your environment is deliberately **not** enough to trigger them. R reads `.Renviron` on startup, so any R process launched from this directory has working Snowflake credentials in scope whether or not that was intended; these tests write to and delete from a real stage, so they require an explicit opt-in that nothing sets by accident. Pass the variable on the command line, as above, rather than exporting it into your shell.
 
-Each integration test works inside its own unique stage prefix and deletes
-that prefix afterwards.
+Each integration test works inside its own unique stage prefix and deletes that prefix afterwards.
 
 Run R CMD check:
 
