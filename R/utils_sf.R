@@ -383,14 +383,18 @@ sf_check_connection <- function(board, call = rlang::caller_env()) {
     # `...` is not a value, so it is spliced in as a SYMBOL rather than
     # appended as text: deparse() closes the call, and text pasted after
     # that lands outside the parentheses and does not parse.
+    # `conn` and `...` are both spliced as SYMBOLS. Writing them bare inside
+    # expr() would work, but R CMD check's static analysis reads a bare
+    # symbol as a reference to an undefined global.
+    conn_sym <- rlang::sym("conn")
     board_call <- if (is.null(board$connect_args)) {
       rlang::expr(
-        board_sf_stage(conn, stage = !!board$stage, path = !!board$path)
+        board_sf_stage(!!conn_sym, stage = !!board$stage, path = !!board$path)
       )
     } else {
       rlang::expr(
         board_sf_stage(
-          conn,
+          !!conn_sym,
           stage = !!board$stage,
           path = !!board$path,
           connect_args = !!rlang::sym("...")
