@@ -234,38 +234,44 @@ test_that("sf_escape_regex returns character(0) for empty input", {
   expect_identical(pinsExtras:::sf_escape_regex(character(0)), character(0))
 })
 
-test_that("sf_remove_pattern builds the pattern for a directory and file", {
+test_that("sf_remove_pattern builds the pattern for one file", {
   expect_identical(
-    pinsExtras:::sf_remove_pattern("cars/20240101T000000Z-abc12", "data.txt"),
-    "^(.*/)?cars/20240101T000000Z-abc12/data\\.txt$"
+    pinsExtras:::sf_remove_pattern("data.txt"),
+    "^(.*/)?data\\.txt$"
   )
   expect_identical(
-    pinsExtras:::sf_remove_pattern("", "_pins.yaml"),
+    pinsExtras:::sf_remove_pattern("_pins.yaml"),
     "^(.*/)?_pins\\.yaml$"
+  )
+  expect_identical(
+    pinsExtras:::sf_remove_pattern("cars.rds"),
+    "^(.*/)?cars\\.rds$"
   )
 })
 
 test_that("sf_remove_pattern's grepl match is TRUE for the one file", {
-  pat <- pinsExtras:::sf_remove_pattern(
-    "cars/20240101T000000Z-abc12",
-    "data.txt"
-  )
-  expect_true(grepl(pat, "mystage/cars/20240101T000000Z-abc12/data.txt"))
+  pat <- pinsExtras:::sf_remove_pattern("data.txt")
+  # A bare relative name is the live semantics.
+  expect_true(grepl(pat, "data.txt"))
+  # A full staged path matches too, with or without a stage-name prefix.
   expect_true(grepl(pat, "cars/20240101T000000Z-abc12/data.txt"))
+  expect_true(
+    grepl(pat, "mystage/cars/20240101T000000Z-abc12/data.txt")
+  )
   expect_true(
     grepl(pat, "mystage/team-data/cars/20240101T000000Z-abc12/data.txt")
   )
 })
 
 test_that("sf_remove_pattern's grepl match is FALSE for everything else", {
-  pat <- pinsExtras:::sf_remove_pattern(
-    "cars/20240101T000000Z-abc12",
-    "data.txt"
-  )
-  expect_false(grepl(pat, "mystage/cars/20240101T000000Z-abc12/data.txt.bak"))
-  expect_false(grepl(pat, "mystage/carsX20240101T000000Z-abc12/data.txt"))
+  pat <- pinsExtras:::sf_remove_pattern("data.txt")
+  expect_false(grepl(pat, "data.txt.bak"))
+  expect_false(grepl(pat, "cars.rds"))
   expect_false(
-    grepl(pat, "mystage/cars_extra/20240101T000000Z-abc12/data.txt")
+    grepl(pat, "mystage/cars/20240101T000000Z-abc12/data.txt.bak")
+  )
+  expect_false(
+    grepl(pat, "mystage/cars/20240101T000000Z-abc12/cars.rds")
   )
 })
 

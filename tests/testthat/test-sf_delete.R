@@ -47,7 +47,7 @@ test_that("sf_stage_delete_file anchors a PATTERN for a single file", {
     rec$calls,
     paste0(
       "REMOVE '@~/cars/20240101T000000Z-abc12/' PATTERN = '",
-      "^(.*/)?cars/20240101T000000Z-abc12/data",
+      "^(.*/)?data",
       "\\\\.txt$'"
     )
   )
@@ -96,7 +96,7 @@ test_that("sf_stage_delete_file removes the manifest from the board root", {
     rec$calls,
     paste0(
       "REMOVE '@mystage/team-data/' PATTERN = '",
-      "^(.*/)?team-data/_pins",
+      "^(.*/)?_pins",
       "\\\\.yaml$'"
     )
   )
@@ -118,33 +118,36 @@ test_that("sf_stage_delete_file scopes to one file on a board with a path", {
     rec$calls,
     paste0(
       "REMOVE '@mystage/team-data/cars/20240101T000000Z-abc12/' PATTERN = '",
-      "^(.*/)?team-data/cars/20240101T000000Z-abc12/data",
+      "^(.*/)?data",
       "\\\\.txt$'"
     )
   )
 })
 
-test_that("sf_stage_delete_file escapes a dot in the pin name", {
-  board <- sf_mock_board()
-  v <- sf_fixture_version()
-  rec <- sf_mock_transport()
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
-
-  expect_true(
-    pinsExtras:::sf_stage_delete_file(board, paste0("my.pin/", v), "data.txt")
-  )
-  expect_identical(
-    rec$calls,
-    paste0(
-      "REMOVE '@~/my.pin/20240101T000000Z-abc12/' PATTERN = '",
-      "^(.*/)?my\\\\.pin/20240101T000000Z-abc12/data",
-      "\\\\.txt$'"
+test_that(
+  "sf_stage_delete_file quotes a pin name containing a dot in the location",
+  {
+    board <- sf_mock_board()
+    v <- sf_fixture_version()
+    rec <- sf_mock_transport()
+    testthat::local_mocked_bindings(
+      sf_stage_cmd = rec$responder,
+      .package = "pinsExtras"
     )
-  )
-})
+
+    expect_true(
+      pinsExtras:::sf_stage_delete_file(board, paste0("my.pin/", v), "data.txt")
+    )
+    expect_identical(
+      rec$calls,
+      paste0(
+        "REMOVE '@~/my.pin/20240101T000000Z-abc12/' PATTERN = '",
+        "^(.*/)?data",
+        "\\\\.txt$'"
+      )
+    )
+  }
+)
 
 test_that("sf_stage_delete_dir refuses an empty directory on the stage root", {
   board <- sf_mock_board()
@@ -255,13 +258,7 @@ test_that("sf_stage_delete_file refuses a non-string file name", {
 })
 
 test_that("the delete PATTERN matches only the intended file", {
-  board <- sf_mock_board()
-  v <- sf_fixture_version()
-  # The pattern sf_stage_delete_file issues, resolved against the board.
-  pattern <- pinsExtras:::sf_remove_pattern(
-    pinsExtras:::sf_normalize_path(board, paste0("cars/", v)),
-    "data.txt"
-  )
+  pattern <- pinsExtras:::sf_remove_pattern("data.txt")
 
   expect_true(
     grepl(pattern, "mystage/cars/20240101T000000Z-abc12/data.txt")
@@ -271,12 +268,6 @@ test_that("the delete PATTERN matches only the intended file", {
   )
   expect_false(
     grepl(pattern, "mystage/cars/20240101T000000Z-abc12/data.txt.bak")
-  )
-  expect_false(
-    grepl(
-      pattern,
-      "mystage/cars_extra/20240101T000000Z-abc12/data.txt"
-    )
   )
   expect_false(
     grepl(pattern, "mystage/cars/20240101T000000Z-abc12/cars.rds")

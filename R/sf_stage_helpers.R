@@ -504,10 +504,12 @@ sf_stage_delete_dir <- function(board, dir, call = rlang::caller_env()) {
 # Delete exactly one file from the stage, and nothing else.
 #
 # A bare prefix is again too broad, so in addition to the trailing slash
-# this anchors a PATTERN that matches only the named file. Because Snowflake
-# applies the PATTERN to the full staged path, it is built from the
-# board-relative directory: sf_remove_pattern() prefixes "^(.*/)?" to absorb
-# whatever stage-name prefix the full path carries.
+# this anchors a PATTERN that matches only the named file. The REMOVE LOCATION
+# scopes the command to one directory; the PATTERN then picks the single file
+# inside it. Because Snowflake applies the PATTERN to a name relative to that
+# location, the pattern is built from the file alone (never the directory)
+# and prefixed with "^(.*/)?" so it matches whether the engine sees a bare
+# relative name or a full staged path.
 sf_stage_delete_file <- function(board, dir, file, call = rlang::caller_env()) {
   # dir is intentionally not guarded here: deleting one named file from the
   # board root is how the manifest is removed.
@@ -525,7 +527,7 @@ sf_stage_delete_file <- function(board, dir, file, call = rlang::caller_env()) {
     "REMOVE %s PATTERN = %s",
     sf_quote_stage_path(paste0(sf_stage_path(board, dir), "/")),
     sf_quote_sql_literal(
-      sf_remove_pattern(sf_normalize_path(board, dir), file)
+      sf_remove_pattern(file)
     )
   )
   sf_stage_cmd(board, sql)

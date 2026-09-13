@@ -364,13 +364,16 @@ sf_escape_regex <- function(x) {
   structure(out, names = NULL)
 }
 
-# Build a REMOVE ... PATTERN expression for Snowflake. Anchor the escaped
-# board-relative path at both ends with an optional leading-path group so it
-# matches the full staged path (with or without a named-stage prefix) and
-# deletes exactly one file.
-sf_remove_pattern <- function(dir, file) {
-  tail <- if (dir == "") file else paste0(dir, "/", file)
-  paste0("^(.*/)?", sf_escape_regex(tail), "$")
+# Build a REMOVE ... PATTERN expression for Snowflake. One argument: the
+# single file name. Anchored at both ends with an optional leading-path
+# group so the pattern matches the named file whether Snowflake applies the
+# PATTERN to a bare relative name (the live semantics) or to a full staged
+# path; either way only the named file matches and a sibling such as
+# data.txt.bak does not. The directory is never part of the pattern: it is
+# scoped instead by the REMOVE LOCATION, which scopes the command to one
+# directory. This came from a live non-destructive probe, not an inference.
+sf_remove_pattern <- function(file) {
+  paste0("^(.*/)?", sf_escape_regex(file), "$")
 }
 
 # Strip the board path from a listing so names are board-relative.
