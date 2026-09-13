@@ -43,8 +43,9 @@
 #'   omitted.
 #'
 #' * `board_sf_stage()` is powered by the DBI and odbc packages, which are
-#'   suggested dependencies of pinsExtras. You also need the Snowflake ODBC
-#'   driver installed on your system.
+#'   required dependencies of pinsExtras and are installed with it. You also
+#'   need the Snowflake ODBC driver installed on your system, which is not an
+#'   R package and cannot be installed by `install.packages()`.
 #'
 #' # Edge Cases and Limitations
 #'
