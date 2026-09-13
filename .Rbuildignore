@@ -18,3 +18,4 @@
 ^\.posit$
 ^\.claude$
 ^\.github$
+^SECURITY-REVIEW-.*\.local\.md$

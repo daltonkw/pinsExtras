@@ -39,3 +39,6 @@ odbcinst.ini
 
 # Built package tarballs
 *.tar.gz
+
+# Local-only security review notes
+SECURITY-REVIEW-*.local.md
