@@ -1,4 +1,15 @@
 skip_if_no_sf_stage <- function() {
+  # Credentials being present is NOT consent to use them. R reads .Renviron on
+  # startup unless --vanilla is passed, so any Rscript run from this repo has
+  # working Snowflake credentials in scope whether or not that was intended --
+  # which is how the integration suite was run live three times, unnoticed,
+  # during U11. These tests create and delete real objects on a real stage, so
+  # they now require an explicit opt-in that nothing sets by accident.
+  if (!identical(Sys.getenv("PINS_SF_RUN_INTEGRATION"), "true")) {
+    testthat::skip(
+      "Integration tests are opt-in: set PINS_SF_RUN_INTEGRATION=true"
+    )
+  }
   needed <- c(
     "PINS_SF_SERVER",
     "PINS_SF_USER",
