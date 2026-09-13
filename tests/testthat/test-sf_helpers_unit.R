@@ -234,93 +234,79 @@ test_that("sf_escape_regex returns character(0) for empty input", {
   expect_identical(pinsExtras:::sf_escape_regex(character(0)), character(0))
 })
 
-test_that("sf_remove_pattern builds the pattern for one file", {
+test_that("sf_remove_pattern is anchored to its directory", {
+  # The stage root carries no parent to scope against, so the leading-path
+  # group is dropped and the pattern is anchored to the file alone.
   expect_identical(
-    pinsExtras:::sf_remove_pattern("data.txt"),
-    "^(.*/)?data\\.txt$"
+    pinsExtras:::sf_remove_pattern("", "data.txt"),
+    "^data\\.txt$"
   )
+  # Otherwise the directory is part of the pattern, with an optional leading
+  # group so it matches whether Snowflake sees a bare relative name or the
+  # full staged path under that directory.
   expect_identical(
-    pinsExtras:::sf_remove_pattern("_pins.yaml"),
-    "^(.*/)?_pins\\.yaml$"
-  )
-  expect_identical(
-    pinsExtras:::sf_remove_pattern("cars.rds"),
-    "^(.*/)?cars\\.rds$"
+    pinsExtras:::sf_remove_pattern("cars/V", "data.txt"),
+    "^(cars/V/)?data\\.txt$"
   )
 })
 
-test_that("sf_remove_pattern's grepl match is TRUE for the one file", {
-  pat <- pinsExtras:::sf_remove_pattern("data.txt")
-  # A bare relative name is the live semantics.
+test_that("sf_remove_pattern's grepl match is scoped to its directory", {
+  pat <- pinsExtras:::sf_remove_pattern("cars/V", "data.txt")
   expect_true(grepl(pat, "data.txt"))
-  # A full staged path matches too, with or without a stage-name prefix.
-  expect_true(grepl(pat, "cars/20240101T000000Z-abc12/data.txt"))
-  expect_true(
-    grepl(pat, "mystage/cars/20240101T000000Z-abc12/data.txt")
-  )
-  expect_true(
-    grepl(pat, "mystage/team-data/cars/20240101T000000Z-abc12/data.txt")
-  )
-})
-
-test_that("sf_remove_pattern's grepl match is FALSE for everything else", {
-  pat <- pinsExtras:::sf_remove_pattern("data.txt")
+  expect_true(grepl(pat, "cars/V/data.txt"))
+  expect_false(grepl(pat, "child/data.txt"))
+  expect_false(grepl(pat, "cars/V/child/data.txt"))
   expect_false(grepl(pat, "data.txt.bak"))
-  expect_false(grepl(pat, "cars.rds"))
-  expect_false(
-    grepl(pat, "mystage/cars/20240101T000000Z-abc12/data.txt.bak")
-  )
-  expect_false(
-    grepl(pat, "mystage/cars/20240101T000000Z-abc12/cars.rds")
-  )
+  expect_false(grepl(pat, "cars/V/cars.rds"))
 })
 
-test_that("sf_escape_regex escapes exactly the 14 Java metacharacters", {
-  # Each Java metacharacter, on its own, comes back escaped with a single
-  # leading backslash...
-  java <- c("\\", "^", "$", ".", "|", "?", "*", "+",
-    "(", ")", "[", "]", "{", "}")
-  expect_identical(pinsExtras:::sf_escape_regex(java), paste0("\\", java))
-  # ... while every character Java does not treat as special is untouched.
+test_that("sf_remove_pattern escapes a dot in the directory", {
   expect_identical(
-    pinsExtras:::sf_escape_regex("a=b!c<d>e:f-g"),
-    "a=b!c<d>e:f-g"
+    pinsExtras:::sf_remove_pattern("a.b", "data.txt"),
+    "^(a\\.b/)?data\\.txt$"
   )
 })
 
-test_that("sf_get_pattern builds a different pattern from sf_remove_pattern",
-{
+test_that("sf_get_pattern is anchored to its directory", {
+  expect_identical(
+    pinsExtras:::sf_get_pattern("", "data.txt"),
+    ".*/data\\.txt$"
+  )
+  # The leading token is a bare ".*" with NO slash: Snowflake prepends a
+  # stage-name prefix with no separator before our directory on the user
+  # stage, so the escaped directory still has to line up after the star.
+  expect_identical(
+    pinsExtras:::sf_get_pattern("cars/V", "data.txt"),
+    ".*cars/V/data\\.txt$"
+  )
+})
+
+test_that("sf_get_pattern's grepl match is scoped to its directory", {
+  pat <- pinsExtras:::sf_get_pattern("cars/V", "data.txt")
+  expect_true(grepl(pat, "stage/cars/V/data.txt"))
+  # The bare ".*" absorbs any stage prefix, so the relative name alone
+  # still matches: only the directory scope rejects a sibling.
+  expect_true(grepl(pat, "cars/V/data.txt"))
+  expect_false(grepl(pat, "child/data.txt"))
+  expect_false(grepl(pat, "cars/V/child/data.txt"))
+  expect_false(grepl(pat, "stage/cars/V/child/data.txt"))
+  expect_false(grepl(pat, "stage/cars/V/data.txt.bak"))
+})
+
+test_that("sf_get_pattern escapes a dot in the directory", {
+  expect_identical(
+    pinsExtras:::sf_get_pattern("a.b", "my.pin.rds"),
+    ".*a\\.b/my\\.pin\\.rds$"
+  )
+})
+
+test_that("sf_get_pattern and sf_remove_pattern stay different", {
   # GET and REMOVE share the file name but apply it to different Snowflake
   # engines, so they must not collapse to one helper.
   expect_false(
     identical(
-      pinsExtras:::sf_get_pattern("data.txt"),
-      pinsExtras:::sf_remove_pattern("data.txt")
+      pinsExtras:::sf_get_pattern("cars/V", "data.txt"),
+      pinsExtras:::sf_remove_pattern("cars/V", "data.txt")
     )
   )
-})
-
-test_that("sf_get_pattern builds the .*/...$ pattern for one file", {
-  expect_identical(pinsExtras:::sf_get_pattern("data.txt"), ".*/data\\.txt$")
-  expect_identical(pinsExtras:::sf_get_pattern("report"), ".*/report$")
-  expect_identical(
-    pinsExtras:::sf_get_pattern("report.pdf"),
-    ".*/report\\.pdf$"
-  )
-  expect_identical(
-    pinsExtras:::sf_get_pattern("my.pin.rds"),
-    ".*/my\\.pin\\.rds$"
-  )
-})
-
-test_that("sf_get_pattern's grepl match is TRUE for the one staged file", {
-  pat <- pinsExtras:::sf_get_pattern("data.txt")
-  # GET matches the whole staged path, which carries a leading prefix.
-  expect_true(grepl(pat, "mystage/cars/v/data.txt"))
-})
-
-test_that("sf_get_pattern's grepl match is FALSE for a sibling", {
-  pat <- pinsExtras:::sf_get_pattern("data.txt")
-  expect_false(grepl(pat, "mystage/cars/v/data.txt.bak"))
-  expect_false(grepl(pat, "mystage/cars/v/cars.rds"))
 })

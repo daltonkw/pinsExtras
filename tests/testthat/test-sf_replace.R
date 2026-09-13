@@ -255,7 +255,7 @@ test_that("one clean version reports nothing and issues four commands", {
   expect_identical(
     rec$calls[[1]],
     paste0(
-      "REMOVE '@~/cars/", v, "/' PATTERN = '^(.*/)?data\\\\.txt$'"
+      "REMOVE '@~/cars/", v, "/' PATTERN = '^(cars/", v, "/)?data\\\\.txt$'"
     )
   )
 })
@@ -279,7 +279,7 @@ test_that("two clean versions report nothing and issue seven commands in order",
   expect_identical(
     rec$calls[[1]],
     paste0(
-      "REMOVE '@~/cars/", v1, "/' PATTERN = '^(.*/)?data\\\\.txt$'"
+      "REMOVE '@~/cars/", v1, "/' PATTERN = '^(cars/", v1, "/)?data\\\\.txt$'"
     )
   )
   expect_identical(
@@ -289,7 +289,7 @@ test_that("two clean versions report nothing and issue seven commands in order",
   expect_identical(
     rec$calls[[4]],
     paste0(
-      "REMOVE '@~/cars/", v2, "/' PATTERN = '^(.*/)?data\\\\.txt$'"
+      "REMOVE '@~/cars/", v2, "/' PATTERN = '^(cars/", v2, "/)?data\\\\.txt$'"
     )
   )
   expect_identical(rec$calls[[7]], "LIST '@~/cars/'")

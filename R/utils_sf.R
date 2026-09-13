@@ -452,30 +452,60 @@ sf_escape_regex <- function(x) {
   structure(out, names = NULL)
 }
 
-# GET's sibling lives in sf_get_pattern(); the two differ on purpose.
-# Build a REMOVE ... PATTERN expression for Snowflake. One argument: the
-# single file name. Anchored at both ends with an optional leading-path
-# group so the pattern matches the named file whether Snowflake applies the
-# PATTERN to a bare relative name (the live semantics) or to a full staged
-# path; either way only the named file matches and a sibling such as
-# data.txt.bak does not. The directory is never part of the pattern: it is
-# scoped instead by the REMOVE LOCATION, which scopes the command to one
-# directory. This came from a live non-destructive probe, not an inference.
-sf_remove_pattern <- function(file) {
-  paste0("^(.*/)?", sf_escape_regex(file), "$")
+# GET's sibling lives in sf_remove_pattern(); the two differ on purpose.
+#
+# `dir` is the stage-root-normalized directory of the command's LOCATION, as
+# sf_normalize_path(board, ...) yields it for the LOCATION -- it may be the
+# empty string when the LOCATION is the stage root itself. It is part of the
+# pattern: scoping the match to one directory is what stops a bare file name
+# from matching the same basename in a sibling directory (SEC-05), so it is
+# escaped like any other component of the pattern.
+#
+# Build a REMOVE ... PATTERN expression for Snowflake. Argument: the single
+# file name, in its directory. Anchored at both ends with an optional
+# leading-path group so the pattern matches the named file whether Snowflake
+# applies the PATTERN to a bare relative name (the live semantics) or to a
+# full staged path; either way only the named file matches and a sibling such
+# as data.txt.bak does not. `dir == ""` (the stage root) has no parent to
+# scope against, so the leading-path group is dropped and the pattern is
+# anchored directly to the file.
+sf_remove_pattern <- function(dir, file) {
+  if (dir == "") {
+    paste0("^", sf_escape_regex(file), "$")
+  } else {
+    paste0("^(", sf_escape_regex(dir), "/)?", sf_escape_regex(file), "$")
+  }
 }
 
-# Build a GET ... PATTERN expression for Snowflake. One argument: the single
-# file name. Deliberately a different form from sf_remove_pattern(): GET
-# matches the PATTERN as a whole string against a full staged path that carries
-# a leading prefix, so it must be anchored at the front too, hence the
-# ".*/" prefix rather than REMOVE's "^(.*/)?". A live non-destructive probe
-# showed REMOVE's form returning zero rows under GET, and a bare file prefix
-# matching a sibling, so the two verbs need two patterns. Escaping is
-# reused from sf_escape_regex(); the directory is never part of the pattern
-# because the GET LOCATION scopes the command to one directory.
-sf_get_pattern <- function(file) {
-  paste0(".*/", sf_escape_regex(file), "$")
+# Build a GET ... PATTERN expression for Snowflake. Argument: the file name,
+# in its directory. Deliberately a different form from sf_remove_pattern():
+# GET matches the PATTERN as a whole string against a full staged path,
+# whereas REMOVE matches it against a bare relative name, so the two verbs
+# need two patterns -- this probe confirmed the shapes are not interchangeable.
+#
+# In the `dir != ""` branch the leading token is a bare ".*" with NO slash:
+# Snowflake prepends a stage-name prefix to the full path it matches against,
+# and on the user stage there is no separator between that prefix and our
+# directory, so a literal "/" after ".*" lines up against nothing. The bare
+# ".*" absorbs whatever shape the prefix has, so only the escaped directory
+# and file need line up. A live non-destructive probe on
+# <dir>/data.txt, <dir>/data.txt.bak, <dir>/child/data.txt showed exactly
+# this: the slashed form '.*/<dir>/data\.txt$' matched zero rows, the bare
+# ".*" form '.*<dir>/data\.txt$' matched only data.txt, and a bare
+# '.*/data\.txt$' (no directory) matched two rows. That is why the slash is
+# deliberately dropped here and why REMOVE's '^(<dir>/)?file$' form is kept
+# untouched -- it is scoped differently and verified separately.
+#
+# `dir == ""` (the stage root) has no directory to interpolate and keeps the
+# ".*/" prefix. This is fail-closed: with no directory a bare file name would
+# match that name in every directory, so GET at the stage root is refused by
+# never happening -- nothing GETs at the stage root.
+sf_get_pattern <- function(dir, file) {
+  if (dir == "") {
+    paste0(".*/", sf_escape_regex(file), "$")
+  } else {
+    paste0(".*", sf_escape_regex(dir), "/", sf_escape_regex(file), "$")
+  }
 }
 
 # Strip the board path from a listing so names are board-relative.

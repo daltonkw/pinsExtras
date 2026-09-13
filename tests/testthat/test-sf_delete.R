@@ -47,7 +47,7 @@ test_that("sf_stage_delete_file anchors a PATTERN for a single file", {
     rec$calls,
     paste0(
       "REMOVE '@~/cars/20240101T000000Z-abc12/' PATTERN = '",
-      "^(.*/)?data",
+      "^(cars/20240101T000000Z-abc12/)?data",
       "\\\\.txt$'"
     )
   )
@@ -96,7 +96,7 @@ test_that("sf_stage_delete_file removes the manifest from the board root", {
     rec$calls,
     paste0(
       "REMOVE '@mystage/team-data/' PATTERN = '",
-      "^(.*/)?_pins",
+      "^_pins",
       "\\\\.yaml$'"
     )
   )
@@ -118,7 +118,7 @@ test_that("sf_stage_delete_file scopes to one file on a board with a path", {
     rec$calls,
     paste0(
       "REMOVE '@mystage/team-data/cars/20240101T000000Z-abc12/' PATTERN = '",
-      "^(.*/)?data",
+      "^(cars/20240101T000000Z-abc12/)?data",
       "\\\\.txt$'"
     )
   )
@@ -142,7 +142,7 @@ test_that(
       rec$calls,
       paste0(
         "REMOVE '@~/my.pin/20240101T000000Z-abc12/' PATTERN = '",
-        "^(.*/)?data",
+        "^(my\\\\.pin/20240101T000000Z-abc12/)?data",
         "\\\\.txt$'"
       )
     )
@@ -257,21 +257,20 @@ test_that("sf_stage_delete_file refuses a non-string file name", {
   expect_length(rec$calls, 0L)
 })
 
-test_that("the delete PATTERN matches only the intended file", {
-  pattern <- pinsExtras:::sf_remove_pattern("data.txt")
+test_that("the delete PATTERN matches only the intended file in its directory", {
+  pattern <- pinsExtras:::sf_remove_pattern(
+    "cars/20240101T000000Z-abc12",
+    "data.txt"
+  )
 
-  expect_true(
-    grepl(pattern, "mystage/cars/20240101T000000Z-abc12/data.txt")
-  )
-  expect_true(
-    grepl(pattern, "cars/20240101T000000Z-abc12/data.txt")
-  )
-  expect_false(
-    grepl(pattern, "mystage/cars/20240101T000000Z-abc12/data.txt.bak")
-  )
-  expect_false(
-    grepl(pattern, "mystage/cars/20240101T000000Z-abc12/cars.rds")
-  )
+  # Scoped to its directory by dir: the full staged path matches, as does the
+  # bare relative name Snowflake uses under the remove LOCATION. A sibling
+  # directory, a sibling file, or an unrelated type all fail the match.
+  expect_true(grepl(pattern, "cars/20240101T000000Z-abc12/data.txt"))
+  expect_true(grepl(pattern, "data.txt"))
+  expect_false(grepl(pattern, "cars/20240101T000000Z-abc12/data.txt.bak"))
+  expect_false(grepl(pattern, "cars/20240101T000000Z-abc12/cars.rds"))
+  expect_false(grepl(pattern, "mystage/cars/20240101T000000Z-abc12/data.txt"))
 })
 
 test_that("sf_stage_delete_dir refuses an NA directory with zero commands", {

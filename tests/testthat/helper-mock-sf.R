@@ -267,7 +267,15 @@ sf_mock_get_files <- function(..., status = "DOWNLOADED", missing = character())
     # pattern is present; fall back to the location for any caller that still
     # passes a full file path.
     file <- if (length(args) >= 3L) {
-      gsub("\\\\", "", sub("\\$$", "", sub("^\\.\\*/", "", args[[3]])))
+      # Since S3 the pattern also carries the directory, as
+      # '.*<dir>/<file>$' -- note the bare '.*' with no slash, which is what
+      # the live probe showed GET requires. Take the basename of whatever is
+      # left after stripping the leading wildcard and the anchor; the strip
+      # is a no-op for that form and basename() does the work. Correct for
+      # the stage-root form '.*/<file>$' too.
+      basename(
+        gsub("\\\\", "", sub("\\$$", "", sub("^\\.\\*/", "", args[[3]])))
+      )
     } else {
       basename(src)
     }

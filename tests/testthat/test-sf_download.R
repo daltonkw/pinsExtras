@@ -19,7 +19,7 @@ test_that("sf_stage_download fetches a file into a fresh directory", {
   )
   expect_match(
     rec$calls[[1]],
-    "PATTERN = '.*/data\\\\.txt$'",
+    "PATTERN = '.*cars/v/data\\\\.txt$'",
     fixed = TRUE
   )
   expect_true(fs::file_exists(fs::path(dest, "data.txt")))
@@ -46,7 +46,7 @@ test_that("sf_stage_download scopes a named stage to its board path", {
   )
   expect_match(
     rec$calls[[1]],
-    "PATTERN = '.*/data\\\\.txt$'",
+    "PATTERN = '.*team-data/cars/v/data\\\\.txt$'",
     fixed = TRUE
   )
 })
@@ -328,7 +328,7 @@ test_that("sf_stage_download emits the full GET with PATTERN at the board root",
   expect_match(rec$calls[[1]], "GET '@~/cars/v/' 'file://", fixed = TRUE)
   expect_match(
     rec$calls[[1]],
-    "PATTERN = '.*/data\\\\.txt$'",
+    "PATTERN = '.*cars/v/data\\\\.txt$'",
     fixed = TRUE
   )
 })
@@ -352,7 +352,7 @@ test_that("sf_stage_download emits the full GET for a named stage and board path
   )
   expect_match(
     rec$calls[[1]],
-    "PATTERN = '.*/data\\\\.txt$'",
+    "PATTERN = '.*team-data/cars/v/data\\\\.txt$'",
     fixed = TRUE
   )
 })
@@ -374,7 +374,7 @@ test_that("sf_stage_download escapes a dotted name and scopes to its directory",
   expect_match(rec$calls[[1]], "GET '@~/cars/v/'", fixed = TRUE)
   expect_match(
     rec$calls[[1]],
-    "PATTERN = '.*/my\\\\.pin\\\\.rds$'",
+    "PATTERN = '.*cars/v/my\\\\.pin\\\\.rds$'",
     fixed = TRUE
   )
 })
@@ -422,7 +422,7 @@ test_that("sf_stage_download narrows a report/report.pdf collision to report",
 
   expect_match(
     rec$calls[[1]],
-    "PATTERN = '.*/report$'",
+    "PATTERN = '.*cars/v/report$'",
     fixed = TRUE
   )
 })

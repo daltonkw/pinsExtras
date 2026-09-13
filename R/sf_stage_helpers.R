@@ -385,7 +385,9 @@ sf_stage_download <- function(
       "GET %s %s PATTERN = %s",
       sf_quote_stage_path(location),
       sf_quote_file_uri(fs::path(tmp, "")),
-      sf_quote_sql_literal(sf_get_pattern(fs::path_file(key)))
+      sf_quote_sql_literal(
+        sf_get_pattern(sf_normalize_path(board, dir), fs::path_file(key))
+      )
     )
   )
   # Prove the transfer succeeded before returning anything.
@@ -542,7 +544,7 @@ sf_stage_delete_file <- function(board, dir, file, call = rlang::caller_env()) {
     "REMOVE %s PATTERN = %s",
     sf_quote_stage_path(paste0(sf_stage_path(board, dir), "/")),
     sf_quote_sql_literal(
-      sf_remove_pattern(file)
+      sf_remove_pattern(dir, file)
     )
   )
   sf_stage_cmd(board, sql)
