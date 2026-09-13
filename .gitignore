@@ -35,3 +35,10 @@ rsa_key.*
 odbc.ini
 odbcinst.ini
 .snowflake/
+.posit/
+
+# Built package tarballs
+*.tar.gz
+
+# Local-only security review notes
+SECURITY-REVIEW-*.local.md

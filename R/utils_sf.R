@@ -8,35 +8,176 @@ sf_end_with_slash <- function(x) {
   x
 }
 
-sf_check_pin_exists <- function(board, name, call = rlang::caller_env()) {
-  if (!pin_exists(board, name)) {
-    cli::cli_abort("Can't find pin called {.val {name}}", call = call)
-  }
-}
-
 sf_check_pin_name <- function(name, call = rlang::caller_env()) {
+  # Not a string is first: more than one condition can be true at once, and
+  # this order is the contract.
   if (!rlang::is_string(name)) {
-    cli::cli_abort("`name` must be a string", call = call)
+    cli::cli_abort("{.arg name} must be a string", call = call)
   }
+  if (name == "") {
+    cli::cli_abort("{.arg name} must not be empty", call = call)
+  }
+  # "data.txt" is reserved wherever it appears; path_file() strips any
+  # directory first, so "a/data.txt" is reported as the reserved name.
   if (fs::path_file(name) == "data.txt") {
-    cli::cli_abort("Can't pin file called `data.txt`", call = call)
+    cli::cli_abort("Can't pin file called {.code data.txt}", call = call)
   }
+  # A name that can escape its directory, or is exactly ".", is rejected.
+  has_sep <- grepl("/", name, fixed = TRUE) ||
+    grepl("\\", name, fixed = TRUE) ||
+    grepl("*", name, fixed = TRUE) ||
+    grepl("?", name, fixed = TRUE) ||
+    grepl("..", name, fixed = TRUE) ||
+    name == "."
+  if (has_sep) {
+    cli::cli_abort(
+      c(
+        "Invalid pin name {.val {name}}.",
+        "x" = paste0(
+          "Pin names cannot contain {.code /}, {.code \\},",
+          " {.code *}, {.code ?} or {.code ..}."
+        )
+      ),
+      call = call
+    )
+  }
+  invisible(TRUE)
 }
 
-sf_check_pin_version <- function(board, name, version, call = rlang::caller_env()) {
-  versions <- pin_versions(board, name)
-  if (nrow(versions) == 0) {
-    cli::cli_abort("No versions available for {.val {name}}", call = call)
+# Whether a single value is a safe path segment: one non-empty character
+# component containing no directory separator, dot, dotdot or backslash. The
+# read-side caller filters discovered names with this; the write-side validator
+# aborts on it. Pure: no board, no SQL, no filesystem. A non-string (NA, zero
+# length, a number) is simply not a valid segment.
+sf_is_valid_path_segment <- function(x) {
+  if (!rlang::is_string(x)) {
+    return(FALSE)
   }
+  # Every literal check below uses fixed = TRUE: a name is never a regex.
+  if (grepl("/", x, fixed = TRUE) ||
+      grepl("\\", x, fixed = TRUE) ||
+      grepl("..", x, fixed = TRUE)) {
+    return(FALSE)
+  }
+  if (x == "" | x == "." | x == "..") {
+    return(FALSE)
+  }
+  TRUE
+}
 
-  if (is.null(version)) {
-    # Return the LAST (newest) version, matching pins behavior
-    versions$version[[nrow(versions)]]
-  } else if (version %in% versions$version) {
-    version
-  } else {
-    sf_abort_pin_version_missing(version, call = call)
+# Require a single safe path segment. Used to guard the supplied pin name and
+# version in pin_delete() and pin_version_delete(), where a ".." or a
+# separator would delete the whole board.
+#
+#   x:    the value to check
+#   arg:  the argument's name, used only in the message, never the value
+sf_check_path_segment <- function(
+  x,
+  arg = "x",
+  call = rlang::caller_env()
+) {
+  # The value is attacker-controlled on the read side, so the message says
+  # what was required and never repeats what was supplied.
+  if (!sf_is_valid_path_segment(x)) {
+    cli::cli_abort(
+      c(
+        "{.arg {arg}} must be a single path segment.",
+        "x" = paste0(
+          "It must be one non-empty string with no directory separators, ",
+          "and not {.code .} or {.code ..}."
+        )
+      ),
+      class = "pinsExtras_invalid_path_segment",
+      call = call
+    )
   }
+  invisible(TRUE)
+}
+
+# Validate the whole local upload set before the first PUT moves a byte,
+# so a partial failure cannot leave files on the stage a later reader
+# cannot make sense of. Every abort shares a first line, a class and a
+# call; the six checks are written out inline rather than through a
+# wrapper so cli can find the check's own locals.
+sf_check_upload_set <- function(
+  name, paths, metadata, call = rlang::caller_env()
+) {
+  if (length(paths) == 0L) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "The upload set is empty."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  absent <- paths[!fs::file_exists(paths)]
+  if (length(absent) > 0L) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "These local files do not exist: {.path {absent}}."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  basenames <- fs::path_file(paths)
+  if (any(basenames == "data.txt")) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "A pinned file cannot be named {.path data.txt}."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  bad <- basenames == "" |
+    basenames == "." |
+    grepl("/", basenames, fixed = TRUE) |
+    grepl("\\", basenames, fixed = TRUE) |
+    grepl("*", basenames, fixed = TRUE) |
+    grepl("?", basenames, fixed = TRUE) |
+    grepl("..", basenames, fixed = TRUE)
+  if (any(bad)) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "These file names are not allowed: {.path {basenames[bad]}}."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  dupes <- unique(basenames[duplicated(basenames)])
+  if (length(dupes) > 0L) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = "Duplicate file names in the upload set: {.path {dupes}}."
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  meta_files <-
+    if ("file" %in% names(metadata)) metadata$file else character(0)
+  if (!setequal(meta_files, basenames)) {
+    cli::cli_abort(
+      c(
+        "Can't upload pin {.val {name}}.",
+        "x" = paste0(
+          "Metadata lists {.path {meta_files}} but the upload set",
+          " contains {.path {basenames}}."
+        )
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      call = call
+    )
+  }
+  invisible(TRUE)
 }
 
 sf_abort_pin_version_missing <- function(version, call = rlang::caller_env()) {
@@ -54,12 +195,31 @@ sf_local_meta <- function(x, name, dir, url = NULL, version = NULL, ...) {
   structure(x, class = "pins_meta")
 }
 
-sf_read_meta <- function(path) {
-  path <- fs::path(path, "data.txt")
-  if (!fs::file_exists(path)) {
-    return(list(api_version = 1L))
+sf_read_meta <- function(path, call = rlang::caller_env()) {
+  file <- fs::path(path, "data.txt")
+  if (!fs::file_exists(file)) {
+    cli::cli_abort(
+      c(
+        "Can't read pin metadata.",
+        "x" = "{.path data.txt} is missing from {.path {path}}."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
   }
-  yaml <- yaml::read_yaml(path, eval.expr = FALSE)
+  # An unparseable file is an error, not a crash to be passed through.
+  yaml <- tryCatch(
+    yaml::read_yaml(file, eval.expr = FALSE),
+    error = function(c) cli::cli_abort(
+      c(
+        "Can't read pin metadata.",
+        "x" = "{.path data.txt} in {.path {path}} could not be parsed."
+      ),
+      parent = c,
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  )
   if (is.null(yaml$api_version)) {
     yaml$api_version <- 0L
     yaml$file <- yaml$path %||% yaml$file
@@ -67,6 +227,44 @@ sf_read_meta <- function(path) {
     yaml$file_size <- fs::as_fs_bytes(yaml$file_size)
     yaml$created <- sf_parse_8601_compact(yaml$created)
     yaml$user <- yaml$user %||% list()
+  }
+  # The payload names the stage returns are attacker-controlled (SEC-02), so
+  # validate them strictly before handing any string back to the caller. The
+  # legacy branch above set yaml$file from yaml$path, so legacy metadata gets
+  # the same check. A value that fails any rule aborts rather than being
+  # silently reduced to a basename, which would make the returned name
+  # disagree with what was fetched. The value is never interpolated into the
+  # message; it says what was required.
+  files <- yaml$file
+  bad <-
+    !is.character(files) ||
+    length(files) == 0L ||
+    any(is.na(files)) ||
+    any(
+      files == "" |
+        files == "." |
+        grepl("/", files, fixed = TRUE) |
+        grepl("\\", files, fixed = TRUE) |
+        grepl("..", files, fixed = TRUE) |
+        files == "data.txt"
+    ) ||
+    length(unique(files)) != length(files)
+  if (bad) {
+    cli::cli_abort(
+      c(
+        "Can't read pin metadata.",
+        "x" = paste0(
+          "The {.code file} field must list every uploaded file exactly once."
+        ),
+        "i" = paste0(
+          "Each entry must be a single safe file name with no directory",
+          " separators, and not {.code .}, {.code ..} or",
+          " {.code data.txt}."
+        )
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
   }
   yaml
 }
@@ -93,19 +291,6 @@ sf_version_from_path <- function(x) {
   out$created[n_ok] <- sf_parse_8601_compact(purrr::map_chr(pieces[n_ok], 1))
   out$hash[n_ok] <- purrr::map_chr(pieces[n_ok], 2)
   out
-}
-
-sf_version_setup <- function(board, name, new_version, versioned = NULL) {
-  n_versions <- 0
-  if (pin_exists(board, name)) {
-    versions <- pin_versions(board, name)
-    n_versions <- nrow(versions)
-  }
-  ver_flag <- versioned %||% board$versioned %||% TRUE
-  if (!ver_flag && n_versions > 0) {
-    sf_stage_delete(board, name)
-  }
-  new_version
 }
 
 sf_parse_8601_compact <- function(x) {
@@ -191,23 +376,406 @@ sf_check_connection <- function(board, call = rlang::caller_env()) {
       ">" = "To reconnect, create a new board with a fresh connection:"
     )
 
-    # Add reconnection guidance if connect_args are available
-    if (!is.null(board$connect_args)) {
-      msg <- c(
-        msg,
-        " " = "  conn <- DBI::dbConnect(odbc::odbc(), ...)",
-        " " = "  board <- board_sf_stage(conn, stage = \"{board$stage}\", path = \"{board$path}\", connect_args = ...)"
+    # Build the board_sf_stage() call as an R expression so the stage and
+    # path become R string literals, never text pasted into code. Each
+    # value is spliced with !! and deparsed, so an injection such as
+    # x\"); message(\"X\") parses back to exactly one statement.
+    # `...` is not a value, so it is spliced in as a SYMBOL rather than
+    # appended as text: deparse() closes the call, and text pasted after
+    # that lands outside the parentheses and does not parse.
+    # `conn` and `...` are both spliced as SYMBOLS. Writing them bare inside
+    # expr() would work, but R CMD check's static analysis reads a bare
+    # symbol as a reference to an undefined global.
+    conn_sym <- rlang::sym("conn")
+    board_call <- if (is.null(board$connect_args)) {
+      rlang::expr(
+        board_sf_stage(!!conn_sym, stage = !!board$stage, path = !!board$path)
       )
     } else {
-      msg <- c(
-        msg,
-        " " = "  conn <- DBI::dbConnect(odbc::odbc(), ...)",
-        " " = "  board <- board_sf_stage(conn, stage = \"{board$stage}\", path = \"{board$path}\")"
+      rlang::expr(
+        board_sf_stage(
+          !!conn_sym,
+          stage = !!board$stage,
+          path = !!board$path,
+          connect_args = !!rlang::sym("...")
+        )
       )
     }
+    code <- paste(deparse(board_call), collapse = "")
+
+    # Deparsed text may contain { or } (a valid path segment), which cli
+    # would read as interpolation. Double them so cli renders them
+    # literally; ordinary stage and path values have no braces, so the
+    # rendered line is unchanged. This is a display-only value, never SQL.
+    code <- gsub("{", "{{", code, fixed = TRUE)
+    code <- gsub("}", "}}", code, fixed = TRUE)
+
+    msg <- c(
+      msg,
+      " " = "  conn <- DBI::dbConnect(odbc::odbc(), ...)",
+      " " = paste0("  board <- ", code)
+    )
 
     cli::cli_abort(msg, call = call)
   }
 
   invisible(NULL)
+}
+
+# Escape and quote text for a Snowflake string literal
+#
+# Snowflake treats backslash as an escape character inside string literals,
+# so escape backslashes before single quotes to avoid double-escaping.
+sf_quote_sql_literal <- function(x) {
+  x <- gsub("\\", "\\\\", x, fixed = TRUE)
+  x <- gsub("'", "\\'", x, fixed = TRUE)
+  paste0("'", x, "'")
+}
+
+# Build a quoted stage location for SQL
+#
+# Single construction point for a stage location: it is just the shared
+# literal quoting applied to the stage path.
+sf_quote_stage_path <- function(path) {
+  sf_quote_sql_literal(path)
+}
+
+# Build a quoted local file URI for SQL
+#
+# Single construction point for a local file URI: prefix the path with
+# "file://" and then quote it like any other stage location.
+sf_quote_file_uri <- function(path) {
+  sf_quote_sql_literal(paste0("file://", path))
+}
+
+# Escape regex metacharacters so a string matches literally
+#
+# The one place in the package that builds a regular expression. Escape
+# exactly the 14 characters Java treats as special, because that is the
+# engine Snowflake uses for REMOVE ... PATTERN; matching R and Java here is
+# what lets the same pattern match literally in both.
+sf_escape_regex <- function(x) {
+  metachars <- c(
+    "\\", "^", "$", ".", "|", "?", "*", "+",
+    "(", ")", "[", "]", "{", "}"
+  )
+  out <- vapply(x, function(s) {
+    if (nchar(s) == 0) {
+      return("")
+    }
+    chars <- strsplit(s, "", fixed = TRUE)[[1]]
+    escaped <- vapply(chars, function(ch) {
+      if (ch %in% metachars) {
+        paste0("\\", ch)
+      } else {
+        ch
+      }
+    }, character(1))
+    paste(escaped, collapse = "")
+  }, character(1))
+  # vapply(character(0)) yields a names attribute of character(0), not NULL
+  structure(out, names = NULL)
+}
+
+# GET's sibling lives in sf_remove_pattern(); the two differ on purpose.
+#
+# `dir` is the stage-root-normalized directory of the command's LOCATION, as
+# sf_normalize_path(board, ...) yields it for the LOCATION -- it may be the
+# empty string when the LOCATION is the stage root itself. It is part of the
+# pattern: scoping the match to one directory is what stops a bare file name
+# from matching the same basename in a sibling directory (SEC-05), so it is
+# escaped like any other component of the pattern.
+#
+# Build a REMOVE ... PATTERN expression for Snowflake. Argument: the single
+# file name, in its directory. Anchored at both ends with an optional
+# leading-path group so the pattern matches the named file whether Snowflake
+# applies the PATTERN to a bare relative name (the live semantics) or to a
+# full staged path; either way only the named file matches and a sibling such
+# as data.txt.bak does not. `dir == ""` (the stage root) has no parent to
+# scope against, so the leading-path group is dropped and the pattern is
+# anchored directly to the file.
+sf_remove_pattern <- function(dir, file) {
+  if (dir == "") {
+    paste0("^", sf_escape_regex(file), "$")
+  } else {
+    paste0("^(", sf_escape_regex(dir), "/)?", sf_escape_regex(file), "$")
+  }
+}
+
+# Build a GET ... PATTERN expression for Snowflake. Argument: the file name,
+# in its directory. Deliberately a different form from sf_remove_pattern():
+# GET matches the PATTERN as a whole string against a full staged path,
+# whereas REMOVE matches it against a bare relative name, so the two verbs
+# need two patterns -- this probe confirmed the shapes are not interchangeable.
+#
+# In the `dir != ""` branch the leading token is a bare ".*" with NO slash:
+# Snowflake prepends a stage-name prefix to the full path it matches against,
+# and on the user stage there is no separator between that prefix and our
+# directory, so a literal "/" after ".*" lines up against nothing. The bare
+# ".*" absorbs whatever shape the prefix has, so only the escaped directory
+# and file need line up. A live non-destructive probe on
+# <dir>/data.txt, <dir>/data.txt.bak, <dir>/child/data.txt showed exactly
+# this: the slashed form '.*/<dir>/data\.txt$' matched zero rows, the bare
+# ".*" form '.*<dir>/data\.txt$' matched only data.txt, and a bare
+# '.*/data\.txt$' (no directory) matched two rows. That is why the slash is
+# deliberately dropped here and why REMOVE's '^(<dir>/)?file$' form is kept
+# untouched -- it is scoped differently and verified separately.
+#
+# `dir == ""` (the stage root) has no directory to interpolate and keeps the
+# ".*/" prefix. This is fail-closed: with no directory a bare file name would
+# match that name in every directory, so GET at the stage root is refused by
+# never happening -- nothing GETs at the stage root.
+sf_get_pattern <- function(dir, file) {
+  if (dir == "") {
+    paste0(".*/", sf_escape_regex(file), "$")
+  } else {
+    paste0(".*", sf_escape_regex(dir), "/", sf_escape_regex(file), "$")
+  }
+}
+
+# Strip the board path from a listing so names are board-relative.
+#
+# sf_stage_list() returns stage-root-relative names (with the board's path
+# in front); every index rule below is written against board-relative names.
+# Literal string operations only -- prefix is a user board path, never a
+# regex.
+sf_board_relative <- function(listing, prefix = "") {
+  if (prefix == "") {
+    return(listing)
+  }
+  drop <- paste0(prefix, "/")
+  keep <- listing$name == prefix | startsWith(listing$name, drop)
+  out <- listing[keep, , drop = FALSE]
+  out$name <- substr(out$name, nchar(drop) + 1L, nchar(out$name))
+  out
+}
+
+# Build the published-pin index from an already-fetched listing.
+#
+# A version counts as published only when its data.txt is present, so the
+# three-segment rule below (<pin>/<version>/data.txt) is the proof of
+# publication. Returns exactly the name and version columns.
+sf_published_index <- function(listing, prefix = "") {
+  boarded <- sf_board_relative(listing, prefix)
+  names <- boarded$name
+
+  pieces <- strsplit(names, "/", fixed = TRUE)
+  n_seg <- lengths(pieces)
+  third <- vapply(
+    pieces,
+    function(p) if (length(p) == 3L) p[[3L]] else NA_character_,
+    character(1)
+  )
+  keep <- n_seg == 3L & third == "data.txt"
+
+  kept_names <- vapply(
+    pieces,
+    function(p) if (length(p) == 3L) p[[1L]] else NA_character_,
+    character(1)
+  )[keep]
+  kept_versions <- vapply(
+    pieces,
+    function(p) if (length(p) == 3L) p[[2L]] else NA_character_,
+    character(1)
+  )[keep]
+
+  # A row is published only when it parsed to a real timestamp AND a hash.
+  # Checking hash alone is not enough: "bogus-abc12" has two "-" pieces, so
+  # sf_version_from_path() sets hash but leaves created = NA.
+  parsed <- sf_version_from_path(kept_versions)
+  ok <- !is.na(parsed$created) & !is.na(parsed$hash)
+  kept_names <- kept_names[ok]
+  parsed <- parsed[ok, , drop = FALSE]
+
+  # A discovered pin name or version comes back from Snowflake, not from the
+  # caller, so one carrying a directory separator, a dot, dotdot or a
+  # backslash is never trusted: it cannot be a safe filesystem path even
+  # though Snowflake happily stored it. Drop such rows before the index is
+  # built, so pin_meta(), pin_versions() and every other reader can never
+  # construct a path outside the cache. A row that fails validation simply
+  # disappears -- it is dropped silently, because warning on it would paste
+  # an attacker-chosen string into the user's console.
+  drop_name <-
+    vapply(kept_names, sf_is_valid_path_segment, logical(1)) == FALSE
+  drop_version <-
+    vapply(parsed$version, sf_is_valid_path_segment, logical(1)) == FALSE
+  keep <- !drop_name & !drop_version
+  kept_names <- kept_names[keep]
+  parsed <- parsed[keep, , drop = FALSE]
+
+  # Deduplicate on the (pin, version) pair, keeping the first seen.
+  dup <- duplicated(
+    data.frame(name = kept_names, version = parsed$version)
+  )
+  kept_names <- kept_names[!dup]
+  parsed <- parsed[!dup, , drop = FALSE]
+
+  index <- tibble::tibble(
+    name = kept_names,
+    version = parsed$version,
+    created = parsed$created
+  )
+  ord <- order(index$name, index$created, index$version)
+  tibble::tibble(
+    name = index$name[ord],
+    version = index$version[ord]
+  )
+}
+
+# The pin names that have at least one published version, in ascending order.
+# The index is already sorted by name, so unique() needs no re-sort.
+sf_index_pins <- function(index) {
+  unique(index$name)
+}
+
+# Whether a single pin has any published version.
+sf_index_has_pin <- function(index, name) {
+  name %in% index$name
+}
+
+# That pin's versions, in index order, with parsed created and hash.
+sf_index_versions <- function(index, name) {
+  versions <- index[index$name == name, , drop = FALSE]
+  sf_version_from_path(versions$version)
+}
+
+# Confirm a pin is published. Mirrors pins' "Can't find pin called ..." so
+# existing callers and tests keep working.
+sf_check_pin_published <- function(index, name, call = rlang::caller_env()) {
+  if (!sf_index_has_pin(index, name)) {
+    cli::cli_abort("Can't find pin called {.val {name}}", call = call)
+  }
+  invisible(TRUE)
+}
+
+# Resolve the version to use for a pin, matching pins:::check_pin_version()
+# for the NULL case (it takes the last version returned by pin_versions()).
+sf_resolve_version <- function(index, name, version = NULL,
+                               call = rlang::caller_env()) {
+  sf_check_pin_published(index, name, call = call)
+
+  versions <- sf_index_versions(index, name)$version
+
+  if (is.null(version)) {
+    return(versions[[length(versions)]])
+  }
+  if (!rlang::is_string(version)) {
+    cli::cli_abort("{.arg version} must be a string", call = call)
+  }
+  if (version %in% versions) {
+    version
+  } else {
+    sf_abort_pin_version_missing(version, call = call)
+  }
+}
+
+# Decide, purely, what a write should do to the versions already on the
+# board. Mirrors pins:::version_setup()'s decision; U11 carries it out in
+# an order that never deletes the old version before the new one lands.
+# Pure: no SQL, no filesystem, no board, no messages.
+sf_version_plan <- function(
+  index,
+  name,
+  new_version,
+  versioned = NULL,
+  board_versioned = TRUE,
+  call = rlang::caller_env()
+) {
+  published <- sf_index_versions(index, name)$version
+  n <- length(published)
+
+  # A write whose new version already exists is a no-op the caller almost
+  # certainly did not intend. upstream pins:::version_setup() compares only
+  # against versions$version[[1]], the first (oldest) row of the ascending
+  # table; we check against every published version, a strict superset, so
+  # this can never wrongly allow a duplicate. upstream's wording is kept.
+  if (new_version %in% published) {
+    cli::cli_abort(
+      c(
+        paste0(
+          "The new version {.val {new_version}} is the same as",
+          " the most recent version."
+        ),
+        "i" = paste0(
+          "Did you try to create a new version with the same",
+          " timestamp as the last version?"
+        )
+      ),
+      call = call
+    )
+  }
+
+  # With several versions already published and no caller override, pins
+  # forces versioning on (pins:::version_setup()); otherwise the per-write
+  # override, when given, wins over the board's own flag.
+  effective <- versioned %||% if (n > 1L) TRUE else board_versioned
+
+  if (n == 0L || effective) {
+    return(list(
+      version = new_version,
+      action = "create",
+      old_versions = character()
+    ))
+  }
+  if (n == 1L && !effective) {
+    return(list(
+      version = new_version,
+      action = "replace",
+      old_versions = published
+    ))
+  }
+
+  # n > 1L && !effective: an existing versioned pin cannot be rewritten
+  # without versions. Wording and class are upstream's, verbatim; note the
+  # lines carry no full stop, which is what upstream prints.
+  cli::cli_abort(
+    c(
+      "Pin is versioned, but you have requested a write without versions",
+      "i" = "To un-version a pin, you must delete it"
+    ),
+    class = "pins_pin_versioned",
+    call = call
+  )
+}
+
+# A half-finished write leaves files under the version directory with no
+# data.txt; re-writing into that directory would mix two attempts' files.
+# We therefore look at the raw pin-scoped listing, not the index, which
+# hides payload-only directories.
+sf_check_version_collision <- function(listing, name, version, prefix = "",
+                                       call = rlang::caller_env()) {
+  relative <- sf_board_relative(listing, prefix)
+  target <- paste0(name, "/", version)
+  collide <- relative$name == target |
+    startsWith(relative$name, paste0(target, "/"))
+  if (any(collide)) {
+    cli::cli_abort(
+      c(
+        "Version {.val {version}} of pin {.val {name}} already exists.",
+        "x" = "No upload was attempted.",
+        "i" = paste0(
+          "Remove it with {.code pin_version_delete()} before",
+          " writing again."
+        )
+      ),
+      class = "pinsExtras_version_collision",
+      call = call
+    )
+  }
+  invisible(TRUE)
+}
+
+# The single informational helper, mirroring pins:::pins_inform():
+# progress output the user can switch off with options(pins.quiet = TRUE).
+#
+#   ...: the cli message template, interpolated in .envir.
+#   .envir: the caller's frame, threaded through so cli can find the
+#           caller's locals; sf_inform() is a wrapper by design, so the
+#           default (parent.frame() evaluated inside cli_inform()) would
+#           look in sf_inform()'s own frame and fail.
+sf_inform <- function(..., .envir = parent.frame()) {
+  if (isTRUE(getOption("pins.quiet", FALSE))) {
+    return(invisible())
+  }
+  cli::cli_inform(..., .envir = .envir)
 }

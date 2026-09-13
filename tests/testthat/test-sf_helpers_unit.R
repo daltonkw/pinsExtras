@@ -134,36 +134,6 @@ test_that("board_sf_stage validates inputs", {
   )
 })
 
-test_that("sf_stage_list filters by exact directory match", {
- # This tests that "mtcars" doesn't match "mtcars_pqt"
-  # We can't do a full integration test without Snowflake, but we can
-  # test the filtering logic by checking the conditions used
-
-  # Simulate the filtering logic from sf_stage_list
-  test_names <- c(
-    "mtcars/v1/data.txt",
-    "mtcars/v1/mtcars.rds",
-    "mtcars_pqt/v1/data.txt",
-    "mtcars_pqt/v1/mtcars_pqt.parquet"
-  )
-
-  prefix <- "mtcars"
-  is_exact <- test_names == prefix
-  is_child <- startsWith(test_names, paste0(prefix, "/"))
-  filtered <- test_names[is_exact | is_child]
-
-  # Should only match mtcars/, not mtcars_pqt/
-  expect_equal(filtered, c("mtcars/v1/data.txt", "mtcars/v1/mtcars.rds"))
-
-  # Test with mtcars_pqt prefix
-  prefix2 <- "mtcars_pqt"
-  is_exact2 <- test_names == prefix2
-  is_child2 <- startsWith(test_names, paste0(prefix2, "/"))
-  filtered2 <- test_names[is_exact2 | is_child2]
-
-  expect_equal(filtered2, c("mtcars_pqt/v1/data.txt", "mtcars_pqt/v1/mtcars_pqt.parquet"))
-})
-
 test_that("sf_extract_stage_name extracts stage name correctly", {
   # Simple stage with @ prefix
   expect_equal(pinsExtras:::sf_extract_stage_name("@mystage"), "mystage")
@@ -185,4 +155,158 @@ test_that("sf_extract_stage_name extracts stage name correctly", {
 
   # Without @ prefix (shouldn't happen but handle gracefully)
   expect_equal(pinsExtras:::sf_extract_stage_name("mystage"), "mystage")
+})
+
+test_that("sf_quote_sql_literal wraps text in single quotes", {
+  expect_identical(pinsExtras:::sf_quote_sql_literal("abc"), "'abc'")
+})
+
+test_that("sf_quote_sql_literal escapes a single quote with a backslash", {
+  expect_identical(
+    pinsExtras:::sf_quote_sql_literal("bob's data"),
+    "'bob\\'s data'"
+  )
+})
+
+test_that("sf_quote_sql_literal doubles each backslash", {
+  expect_identical(pinsExtras:::sf_quote_sql_literal("a\\b"), "'a\\\\b'")
+})
+
+test_that("sf_quote_sql_literal quotes an empty string", {
+  expect_identical(pinsExtras:::sf_quote_sql_literal(""), "''")
+})
+
+test_that("sf_quote_stage_path quotes a stage location verbatim", {
+  expect_identical(pinsExtras:::sf_quote_stage_path("@~"), "'@~'")
+  expect_identical(
+    pinsExtras:::sf_quote_stage_path("@~/team-data/cars/"),
+    "'@~/team-data/cars/'"
+  )
+  expect_identical(
+    pinsExtras:::sf_quote_stage_path("@db.schema.stage/x"),
+    "'@db.schema.stage/x'"
+  )
+})
+
+test_that("sf_quote_file_uri prefixes file:// then quotes", {
+  expect_identical(
+    pinsExtras:::sf_quote_file_uri("/tmp/x/data.txt"),
+    "'file:///tmp/x/data.txt'"
+  )
+  expect_identical(
+    pinsExtras:::sf_quote_file_uri("/tmp/o'brien/data.txt"),
+    "'file:///tmp/o\\'brien/data.txt'"
+  )
+})
+
+test_that("sf_escape_regex escapes a dot", {
+  expect_identical(pinsExtras:::sf_escape_regex("data.txt"), "data\\.txt")
+})
+
+test_that("sf_escape_regex does not escape a hyphen", {
+  expect_identical(pinsExtras:::sf_escape_regex("a-b"), "a-b")
+})
+
+test_that("sf_escape_regex leaves a plain string untouched", {
+  expect_identical(pinsExtras:::sf_escape_regex("plain"), "plain")
+})
+
+test_that("sf_escape_regex escapes a backslash", {
+  expect_identical(pinsExtras:::sf_escape_regex("a\\b"), "a\\\\b")
+})
+
+test_that("sf_escape_regex returns empty for empty input", {
+  expect_identical(pinsExtras:::sf_escape_regex(""), "")
+})
+
+test_that("sf_escape_regex does not escape a slash", {
+  expect_identical(pinsExtras:::sf_escape_regex("a/b"), "a/b")
+})
+
+test_that("sf_escape_regex is vectorised over its input", {
+  expect_identical(
+    pinsExtras:::sf_escape_regex(c("a.b", "c")),
+    c("a\\.b", "c")
+  )
+})
+
+test_that("sf_escape_regex returns character(0) for empty input", {
+  expect_identical(pinsExtras:::sf_escape_regex(character(0)), character(0))
+})
+
+test_that("sf_remove_pattern is anchored to its directory", {
+  # The stage root carries no parent to scope against, so the leading-path
+  # group is dropped and the pattern is anchored to the file alone.
+  expect_identical(
+    pinsExtras:::sf_remove_pattern("", "data.txt"),
+    "^data\\.txt$"
+  )
+  # Otherwise the directory is part of the pattern, with an optional leading
+  # group so it matches whether Snowflake sees a bare relative name or the
+  # full staged path under that directory.
+  expect_identical(
+    pinsExtras:::sf_remove_pattern("cars/V", "data.txt"),
+    "^(cars/V/)?data\\.txt$"
+  )
+})
+
+test_that("sf_remove_pattern's grepl match is scoped to its directory", {
+  pat <- pinsExtras:::sf_remove_pattern("cars/V", "data.txt")
+  expect_true(grepl(pat, "data.txt"))
+  expect_true(grepl(pat, "cars/V/data.txt"))
+  expect_false(grepl(pat, "child/data.txt"))
+  expect_false(grepl(pat, "cars/V/child/data.txt"))
+  expect_false(grepl(pat, "data.txt.bak"))
+  expect_false(grepl(pat, "cars/V/cars.rds"))
+})
+
+test_that("sf_remove_pattern escapes a dot in the directory", {
+  expect_identical(
+    pinsExtras:::sf_remove_pattern("a.b", "data.txt"),
+    "^(a\\.b/)?data\\.txt$"
+  )
+})
+
+test_that("sf_get_pattern is anchored to its directory", {
+  expect_identical(
+    pinsExtras:::sf_get_pattern("", "data.txt"),
+    ".*/data\\.txt$"
+  )
+  # The leading token is a bare ".*" with NO slash: Snowflake prepends a
+  # stage-name prefix with no separator before our directory on the user
+  # stage, so the escaped directory still has to line up after the star.
+  expect_identical(
+    pinsExtras:::sf_get_pattern("cars/V", "data.txt"),
+    ".*cars/V/data\\.txt$"
+  )
+})
+
+test_that("sf_get_pattern's grepl match is scoped to its directory", {
+  pat <- pinsExtras:::sf_get_pattern("cars/V", "data.txt")
+  expect_true(grepl(pat, "stage/cars/V/data.txt"))
+  # The bare ".*" absorbs any stage prefix, so the relative name alone
+  # still matches: only the directory scope rejects a sibling.
+  expect_true(grepl(pat, "cars/V/data.txt"))
+  expect_false(grepl(pat, "child/data.txt"))
+  expect_false(grepl(pat, "cars/V/child/data.txt"))
+  expect_false(grepl(pat, "stage/cars/V/child/data.txt"))
+  expect_false(grepl(pat, "stage/cars/V/data.txt.bak"))
+})
+
+test_that("sf_get_pattern escapes a dot in the directory", {
+  expect_identical(
+    pinsExtras:::sf_get_pattern("a.b", "my.pin.rds"),
+    ".*a\\.b/my\\.pin\\.rds$"
+  )
+})
+
+test_that("sf_get_pattern and sf_remove_pattern stay different", {
+  # GET and REMOVE share the file name but apply it to different Snowflake
+  # engines, so they must not collapse to one helper.
+  expect_false(
+    identical(
+      pinsExtras:::sf_get_pattern("cars/V", "data.txt"),
+      pinsExtras:::sf_remove_pattern("cars/V", "data.txt")
+    )
+  )
 })

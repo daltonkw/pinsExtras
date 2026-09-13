@@ -5,9 +5,8 @@
 test_that("Snowflake stage board end-to-end", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-testthat-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("testthat")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   expect_equal(pin_list(b), character(0))
 
@@ -41,9 +40,8 @@ test_that("Snowflake stage board end-to-end", {
 test_that("pin_read errors on non-existent pin", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-err-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("err")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   expect_error(
     pin_read(b, "nonexistent-pin"),
@@ -54,9 +52,8 @@ test_that("pin_read errors on non-existent pin", {
 test_that("pin_read errors on non-existent version", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-err-ver-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("err-ver")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   pin_write(b, 1:3, "mypin")
 
@@ -69,9 +66,8 @@ test_that("pin_read errors on non-existent version", {
 test_that("pin_delete errors on non-existent pin", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-err-del-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("err-del")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   expect_error(
     pin_delete(b, "nonexistent-pin"),
@@ -82,9 +78,8 @@ test_that("pin_delete errors on non-existent pin", {
 test_that("pin_versions errors on non-existent pin", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-err-vers-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("err-vers")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   expect_error(
     pin_versions(b, "nonexistent-pin"),
@@ -95,9 +90,8 @@ test_that("pin_versions errors on non-existent pin", {
 test_that("pin_meta errors on non-existent pin", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-err-meta-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("err-meta")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   expect_error(
     pin_meta(b, "nonexistent-pin"),
@@ -112,9 +106,8 @@ test_that("pin_meta errors on non-existent pin", {
 test_that("versioned=TRUE creates multiple versions", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-ver-true-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("ver-true")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Write three versions
   pin_write(b, 1:3, "versioned-pin", versioned = TRUE)
@@ -141,9 +134,8 @@ test_that("versioned=TRUE creates multiple versions", {
 test_that("versioned=FALSE replaces existing pin", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-ver-false-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("ver-false")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Write initial version
  pin_write(b, 1:3, "unversioned-pin", versioned = FALSE)
@@ -167,9 +159,8 @@ test_that("versioned=FALSE replaces existing pin", {
 test_that("pin_version_delete removes specific version", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-ver-del-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("ver-del")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Create two versions
   pin_write(b, 1:3, "multi-ver")
@@ -193,9 +184,8 @@ test_that("pin_version_delete removes specific version", {
 test_that("pin_exists returns correct boolean", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-exists-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("exists")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   expect_false(pin_exists(b, "not-yet"))
 
@@ -213,9 +203,8 @@ test_that("pin_exists returns correct boolean", {
 test_that("pin_meta returns correct structure", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-meta-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("meta")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   pin_write(b, 1:3, "meta-test",
     title = "Test Pin",
@@ -239,9 +228,8 @@ test_that("pin_meta returns correct structure", {
 test_that("custom metadata round-trips correctly", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-custom-meta-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("custom-meta")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   custom_meta <- list(
     author = "Test Author",
@@ -287,9 +275,8 @@ test_that("board_deparse errors without connect_args", {
 test_that("board_deparse returns valid expression", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-deparse-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("deparse")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   expr <- board_deparse(b)
 
@@ -321,8 +308,10 @@ test_that("board works with named stage and empty path", {
     connect_args = sf_stage_test_args()
   )
 
-  pin_name <- paste0("empty-path-test-", as.integer(Sys.time()))
-  withr::defer(pinsExtras:::sf_stage_delete(b, pin_name))
+  # This board is rooted at the stage itself, so it must never delete its own
+  # root. It owns exactly one uniquely named pin, and cleans up only that.
+  pin_name <- sf_stage_test_prefix("empty-path")
+  withr::defer(sf_stage_test_cleanup_pin(b, pin_name))
 
   # Write and read should work with empty path
   pin_write(b, 1:5, pin_name)
@@ -342,9 +331,8 @@ test_that("board works with named stage and empty path", {
 test_that("pin names with hyphens and underscores work", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-names-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("names")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Hyphens and underscores are common and should work fine
   pin_write(b, 1:3, "my-pin-name")
@@ -360,9 +348,8 @@ test_that("pin names with hyphens and underscores work", {
 test_that("pin names with dots work", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-dots-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("dots")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Dots should work (but not "data.txt" which is reserved)
   pin_write(b, 1:3, "my.pin.name")
@@ -376,9 +363,8 @@ test_that("pin names with dots work", {
 test_that("pin names starting with numbers work", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-numbers-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("numbers")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   pin_write(b, 1:3, "123-data")
   pin_write(b, 4:6, "2024_results")
@@ -395,9 +381,8 @@ test_that("pin names starting with numbers work", {
 test_that("empty data frame can be pinned", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-empty-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("empty")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Empty data frame (0 rows)
   empty_df <- data.frame(x = integer(), y = character())
@@ -412,9 +397,8 @@ test_that("empty data frame can be pinned", {
 test_that("data frame with NA values can be pinned", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-na-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("na")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   df_with_na <- data.frame(
     x = c(1, NA, 3),
@@ -431,9 +415,8 @@ test_that("data frame with NA values can be pinned", {
 test_that("zero-length vectors can be pinned", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-zero-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("zero")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   pin_write(b, integer(), "empty-int")
   pin_write(b, character(), "empty-char")
@@ -449,9 +432,8 @@ test_that("zero-length vectors can be pinned", {
 test_that("empty board operations work correctly", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-empty-board-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("empty-board")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Operations on brand new empty board
   expect_equal(pin_list(b), character(0))
@@ -473,9 +455,8 @@ test_that("empty board operations work correctly", {
 test_that("single value data can be pinned", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-single-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("single")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Single numeric value
   pin_write(b, 42, "single-number")
@@ -497,9 +478,8 @@ test_that("single value data can be pinned", {
 test_that("complex nested structures can be pinned", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-nested-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("nested")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Deeply nested list with mixed types
   complex_data <- list(
@@ -536,9 +516,8 @@ test_that("complex nested structures can be pinned", {
 test_that("metadata with special characters works", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-meta-special-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("meta-special")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Unicode, quotes, and special characters in metadata
   pin_write(b, 1:3, "meta-special",
@@ -561,9 +540,8 @@ test_that("metadata with special characters works", {
 test_that("pins with many versions work correctly", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-many-vers-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("many-vers")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Create 12 versions
   for (i in 1:12) {
@@ -596,9 +574,8 @@ test_that("pins with many versions work correctly", {
 test_that("very long pin names work", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-long-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("long")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Test increasingly long names to find limits
   # Snowflake typically handles 255 character identifiers
@@ -620,12 +597,11 @@ test_that("very long pin names work", {
 # Edge Cases: Concurrent Writes
 # =============================================================================
 
-test_that("concurrent writes with versioned=TRUE both succeed", {
+test_that("successive writes with versioned=TRUE both succeed", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-concurrent-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("concurrent")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # With versioned=TRUE, both writes should create separate versions
   # We can't truly run them concurrently in a single R session,
@@ -641,12 +617,11 @@ test_that("concurrent writes with versioned=TRUE both succeed", {
   expect_equal(pin_read(b, "concurrent-pin", version = vers$version[[2]]), 4:6)
 })
 
-test_that("concurrent writes with versioned=FALSE last write wins", {
+test_that("successive writes with versioned=FALSE last write wins", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-concurrent-false-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("concurrent-false")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # With versioned=FALSE, second write should replace the first
   pin_write(b, 1:3, "replace-pin", versioned = FALSE)
@@ -667,7 +642,7 @@ test_that("concurrent writes with versioned=FALSE last write wins", {
 test_that("operations fail gracefully when connection is closed", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-conn-closed-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("conn-closed")
 
   # Create board and write a pin
   conn <- sf_stage_test_conn()
@@ -711,10 +686,11 @@ test_that("operations fail gracefully when connection is closed", {
     path = path_base,
     connect_args = sf_stage_test_args()
   )
-  withr::defer({
-    pinsExtras:::sf_stage_delete(b2, path_base)
-    DBI::dbDisconnect(conn2)
-  })
+  # The board's own connection is deliberately closed above, so cleanup runs
+  # on the replacement. Disconnect is registered first so it runs last:
+  # cleanup needs the connection to still be open.
+  withr::defer(try(DBI::dbDisconnect(conn2), silent = TRUE))
+  withr::defer(sf_stage_test_cleanup(b2))
 })
 
 # =============================================================================
@@ -809,9 +785,8 @@ test_that("board_sf_stage requires valid DBI connection", {
 test_that("tags are preserved through write/read cycle", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-tags-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("tags")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Multiple tags with various characters
   tags <- c("analysis", "production", "v2.0", "team-data", "2024_Q4")
@@ -824,9 +799,8 @@ test_that("tags are preserved through write/read cycle", {
 test_that("empty tags vector is preserved", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-empty-tags-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("empty-tags")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   pin_write(b, 1:5, "no-tags", tags = character(0))
 
@@ -837,9 +811,8 @@ test_that("empty tags vector is preserved", {
 test_that("NULL tags are handled correctly", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-null-tags-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("null-tags")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   pin_write(b, 1:5, "null-tags", tags = NULL)
 
@@ -850,9 +823,8 @@ test_that("NULL tags are handled correctly", {
 test_that("tags with special characters are preserved", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-special-tags-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("special-tags")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Tags with hyphens, underscores, dots, and unicode
   special_tags <- c(
@@ -871,9 +843,8 @@ test_that("tags with special characters are preserved", {
 test_that("duplicate tags are preserved as-is", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-dup-tags-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("dup-tags")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Duplicate tags - test whether they're preserved or deduplicated
   dup_tags <- c("alpha", "beta", "alpha", "gamma", "beta")
@@ -889,9 +860,8 @@ test_that("duplicate tags are preserved as-is", {
 test_that("many tags are preserved", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-many-tags-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("many-tags")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Test with 50 tags
   many_tags <- paste0("tag", 1:50)
@@ -909,9 +879,8 @@ test_that("many tags are preserved", {
 test_that("single URL is preserved", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-url-single-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("url-single")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   url <- "https://example.com/data"
   pin_write(b, 1:5, "single-url", urls = url)
@@ -923,9 +892,8 @@ test_that("single URL is preserved", {
 test_that("multiple URLs are preserved", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-urls-multi-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("urls-multi")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   urls <- c(
     "https://example.com/data1",
@@ -941,9 +909,8 @@ test_that("multiple URLs are preserved", {
 test_that("URLs with query parameters and fragments are preserved", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-urls-complex-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("urls-complex")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   complex_urls <- c(
     "https://example.com/data?param1=value1&param2=value2",
@@ -959,9 +926,8 @@ test_that("URLs with query parameters and fragments are preserved", {
 test_that("empty URLs vector is preserved", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-empty-urls-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("empty-urls")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   pin_write(b, 1:5, "no-urls", urls = character(0))
 
@@ -972,9 +938,8 @@ test_that("empty URLs vector is preserved", {
 test_that("NULL URLs are handled correctly", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-null-urls-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("null-urls")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   pin_write(b, 1:5, "null-urls", urls = NULL)
 
@@ -989,9 +954,8 @@ test_that("NULL URLs are handled correctly", {
 test_that("tags and URLs work together", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-tags-urls-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("tags-urls")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   tags <- c("production", "validated", "v3.0")
   urls <- c(
@@ -1018,9 +982,8 @@ test_that("tags and URLs work together", {
 test_that("comprehensive metadata preservation", {
   skip_if_no_sf_stage()
 
-  path_base <- paste0("pins-sf-comprehensive-meta-", as.integer(Sys.time()))
+  path_base <- sf_stage_test_prefix("comprehensive-meta")
   b <- sf_stage_test_board(path_base)
-  withr::defer(pinsExtras:::sf_stage_delete(b, path_base))
 
   # Kitchen sink test: everything at once
   pin_write(b, iris, "comprehensive-meta",

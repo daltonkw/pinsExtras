@@ -76,9 +76,44 @@ a single stage, similar to how \code{prefix} works for S3 boards.
 \item Stage names can be simple (\verb{@mystage}) or fully qualified
 (\verb{@database.schema.mystage}). The \code{@} prefix is added automatically if
 omitted.
+}
+}
+
+\section{Security}{
+\strong{\code{connect_args} is reproduced verbatim.} Whatever you pass is stored on
+the board, and both \code{\link[pins:board_deparse]{pins::board_deparse()}} and ordinary R serialization
+reproduce it. A password or token in \code{connect_args} will therefore appear
+in deparsed reconstruction code, in saved sessions, in \code{.RData} files and
+in anything that serializes the board. Prefer arguments that are not
+secret, or that name an environment variable rather than carrying its
+value. \code{PRIV_KEY_FILE} exposes the key's location, not its contents, which
+is usually the better trade.
+
+\strong{The cache is keyed by stage and path only.} The default cache directory
+is derived from the textual stage and board path, and from nothing else --
+not the account, not the user, not the database or schema that an
+unqualified stage name resolves to. Two boards addressing different
+Snowflake accounts with the same stage text share a cache directory, and
+the second write of a given version id replaces the first one's files.
+Do not share a cache directory across accounts: pass a distinct \code{cache}
+to each board when the same stage text can mean different things.
+
+\strong{Cache directories are created with ambient permissions.} They are not
+forced to be private, so the umask in effect decides who can read
+downloaded pin contents. If the data is sensitive, put the cache somewhere
+you control the permissions of.
+
+\strong{Publication uncertainty is not signalled for every failure.} If the
+metadata upload reaches Snowflake but the response is lost, you get an
+ordinary transport error rather than the "publication uncertain" guidance.
+Old versions are still preserved and nothing is deleted automatically, but
+recovery code cannot always distinguish an uncertain publication from a
+definite failure. Check \code{\link[pins:pin_versions]{pin_versions()}} after an interrupted write.
+\itemize{
 \item \code{board_sf_stage()} is powered by the DBI and odbc packages, which are
-suggested dependencies of pinsExtras. You also need the Snowflake ODBC
-driver installed on your system.
+required dependencies of pinsExtras and are installed with it. You also
+need the Snowflake ODBC driver installed on your system, which is not an
+R package and cannot be installed by \code{install.packages()}.
 }
 }
 
@@ -100,11 +135,26 @@ fully supported and will round-trip correctly.
 
 \strong{Concurrent Access}:
 \itemize{
-\item With \code{versioned = TRUE} (default), concurrent writes create separate
-versions safely. Each write generates a unique version based on timestamp
-and content hash.
-\item With \code{versioned = FALSE}, concurrent writes follow last-write-wins behavior.
-The most recent write will overwrite earlier writes.
+\item Mutation of a single pin is \strong{not} safe to run concurrently. The contract
+is serialized per pin and covers \emph{every} mutator -- writers and deleters
+alike, in any combination. Operations on \emph{different} pins may run at the
+same time.
+\item Readers get no snapshot isolation. A reader can resolve a version and
+then have a concurrent replacement delete it before the read completes.
+\item Collision detection is not promised for every interleaving. Two writers
+can both pass preflight, and two unversioned replacements can each
+capture the same old version and leave two new ones. \code{OVERWRITE=FALSE}
+governs individual files, not ownership of a whole version.
+\item A version id is derived from a timestamp and a content hash, so two
+writers of the same content in the same second produce the \emph{same} id.
+That is detected and raised as an error rather than merging two payloads
+into one version directory. It is a collision report, not a guarantee of
+safe interleaving.
+\item With \code{versioned = FALSE}, a replacement uploads the new version before
+removing the old one, so the pin is never absent. Two concurrent
+replacements are still unsupported and may leave an extra version
+directory behind; use \code{pin_versions()} and \code{pin_version_delete()} to
+inspect and clean up.
 }
 
 \strong{Connection Management}:

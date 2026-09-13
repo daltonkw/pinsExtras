@@ -8,8 +8,21 @@
 \description{
 Extra board implementations for the \code{pins} package.
 }
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/daltonkw/pinsExtras}
+  \item Report bugs at \url{https://github.com/daltonkw/pinsExtras/issues}
+}
+
+}
 \author{
-\strong{Maintainer}: Kevin Dalton \email{_._@example.com}
+\strong{Maintainer}: Kevin Dalton \email{daltonkw@users.noreply.github.com}
+
+Authors:
+\itemize{
+  \item Kevin Dalton \email{daltonkw@users.noreply.github.com}
+}
 
 }
 \keyword{internal}
