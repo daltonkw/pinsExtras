@@ -19,3 +19,17 @@
 ^\.claude$
 ^\.github$
 ^SECURITY-REVIEW-.*\.local\.md$
+# Credential and connection-configuration files. R CMD build does not read
+# .gitignore, so these must be listed here too or a developer checkout can
+# package them for distribution.
+^\.env$
+^\.httr-oauth$
+^\.secrets$
+^.*\.p8$
+^.*\.pem$
+^.*\.key$
+^rsa_key\..*$
+^odbc\.ini$
+^odbcinst\.ini$
+^\.snowflake$
+^\.posit$
