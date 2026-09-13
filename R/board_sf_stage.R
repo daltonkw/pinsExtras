@@ -244,10 +244,10 @@ pin_exists.pins_board_sf_stage <- function(board, name, ...) {
 pin_delete.pins_board_sf_stage <- function(board, names, ...) {
   # Delete one or more pins (all versions) from the board
   for (name in names) {
-    # A name must be a non-empty string.
-    if (!rlang::is_string(name) || name == "") {
-      cli::cli_abort("{.arg names} must be non-empty strings")
-    }
+    # A name must be a single safe path segment: non-empty, no directory
+    # separator, no dot or dotdot. A supplied ".." would delete the whole
+    # board, so the validator aborts before any listing or REMOVE.
+    sf_check_path_segment(name, arg = "names")
     # One pin-scoped listing, then the published check on the derived index.
     # A payload-only orphan has no data.txt, so it is not published and is
     # reported as absent: use pin_version_delete() to remove it raw.
@@ -274,12 +274,10 @@ pin_version_delete.pins_board_sf_stage <- function(board, name, version, ...) {
   # Delete a specific version of a pin (not all versions). No listing and no
   # existence check: this is the raw directory delete, used for an incomplete
   # version directory that discovery cannot see.
-  if (!rlang::is_string(name) || name == "") {
-    cli::cli_abort("{.arg name} must be a non-empty string")
-  }
-  if (!rlang::is_string(version) || version == "") {
-    cli::cli_abort("{.arg version} must be a non-empty string")
-  }
+  # A supplied ".." or separator would delete the whole board, so the
+  # validator aborts before any REMOVE is issued.
+  sf_check_path_segment(name, arg = "name")
+  sf_check_path_segment(version, arg = "version")
   sf_stage_delete_dir(board, fs::path(name, version))
   invisible(board)
 }

@@ -44,6 +44,56 @@ sf_check_pin_name <- function(name, call = rlang::caller_env()) {
   invisible(TRUE)
 }
 
+# Whether a single value is a safe path segment: one non-empty character
+# component containing no directory separator, dot, dotdot or backslash. The
+# read-side caller filters discovered names with this; the write-side validator
+# aborts on it. Pure: no board, no SQL, no filesystem. A non-string (NA, zero
+# length, a number) is simply not a valid segment.
+sf_is_valid_path_segment <- function(x) {
+  if (!rlang::is_string(x)) {
+    return(FALSE)
+  }
+  # Every literal check below uses fixed = TRUE: a name is never a regex.
+  if (grepl("/", x, fixed = TRUE) ||
+      grepl("\\", x, fixed = TRUE) ||
+      grepl("..", x, fixed = TRUE)) {
+    return(FALSE)
+  }
+  if (x == "" | x == "." | x == "..") {
+    return(FALSE)
+  }
+  TRUE
+}
+
+# Require a single safe path segment. Used to guard the supplied pin name and
+# version in pin_delete() and pin_version_delete(), where a ".." or a
+# separator would delete the whole board.
+#
+#   x:    the value to check
+#   arg:  the argument's name, used only in the message, never the value
+sf_check_path_segment <- function(
+  x,
+  arg = "x",
+  call = rlang::caller_env()
+) {
+  # The value is attacker-controlled on the read side, so the message says
+  # what was required and never repeats what was supplied.
+  if (!sf_is_valid_path_segment(x)) {
+    cli::cli_abort(
+      c(
+        "{.arg {arg}} must be a single path segment.",
+        "x" = paste0(
+          "It must be one non-empty string with no directory separators, ",
+          "and not {.code .} or {.code ..}."
+        )
+      ),
+      class = "pinsExtras_invalid_path_segment",
+      call = call
+    )
+  }
+  invisible(TRUE)
+}
+
 # Validate the whole local upload set before the first PUT moves a byte,
 # so a partial failure cannot leave files on the stage a later reader
 # cannot make sense of. Every abort shares a first line, a class and a
@@ -443,6 +493,22 @@ sf_published_index <- function(listing, prefix = "") {
   ok <- !is.na(parsed$created) & !is.na(parsed$hash)
   kept_names <- kept_names[ok]
   parsed <- parsed[ok, , drop = FALSE]
+
+  # A discovered pin name or version comes back from Snowflake, not from the
+  # caller, so one carrying a directory separator, a dot, dotdot or a
+  # backslash is never trusted: it cannot be a safe filesystem path even
+  # though Snowflake happily stored it. Drop such rows before the index is
+  # built, so pin_meta(), pin_versions() and every other reader can never
+  # construct a path outside the cache. A row that fails validation simply
+  # disappears -- it is dropped silently, because warning on it would paste
+  # an attacker-chosen string into the user's console.
+  drop_name <-
+    vapply(kept_names, sf_is_valid_path_segment, logical(1)) == FALSE
+  drop_version <-
+    vapply(parsed$version, sf_is_valid_path_segment, logical(1)) == FALSE
+  keep <- !drop_name & !drop_version
+  kept_names <- kept_names[keep]
+  parsed <- parsed[keep, , drop = FALSE]
 
   # Deduplicate on the (pin, version) pair, keeping the first seen.
   dup <- duplicated(

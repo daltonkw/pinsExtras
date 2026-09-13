@@ -390,7 +390,7 @@ test_that("pin_delete() aborts on an empty name with nothing issued", {
 
   expect_error(
     pins::pin_delete(board, ""),
-    "must be non-empty strings"
+    class = "pinsExtras_invalid_path_segment"
   )
   expect_length(rec$calls, 0L)
 })
@@ -442,11 +442,11 @@ test_that("pin_version_delete() aborts on an empty name or version", {
 
   expect_error(
     pins::pin_version_delete(board, "", sf_fixture_version()),
-    "must be a non-empty string"
+    class = "pinsExtras_invalid_path_segment"
   )
   expect_error(
     pins::pin_version_delete(board, "cars", ""),
-    "must be a non-empty string"
+    class = "pinsExtras_invalid_path_segment"
   )
   expect_length(rec$calls, 0L)
 })
