@@ -205,7 +205,21 @@ sf_check_put_result <- function(result, file, key, call = rlang::caller_env()) {
       call = call
     )
   }
-  got <- fs::path_file(result$target[[1]])
+  # An NA target would make the comparison below throw an unclassed error,
+  # so it is caught here and reported like any other uninterpretable
+  # response (SEC-08).
+  target <- as.character(result$target[[1]])
+  if (is.na(target)) {
+    cli::cli_abort(
+      c(
+        "Failed to upload {.path {key}}.",
+        "x" = "Snowflake's upload response could not be interpreted."
+      ),
+      class = "pinsExtras_upload_failed",
+      call = call
+    )
+  }
+  got <- fs::path_file(target)
   if (got != file) {
     cli::cli_abort(
       c(
@@ -342,7 +356,29 @@ sf_check_meta_put_result <- function(
       call = call
     )
   }
-  got <- fs::path_file(result$target[[1]])
+  # An NA target would make the comparison below throw an unclassed error.
+  # data.txt may already have landed, so this is publication uncertainty,
+  # not a plain upload failure (SEC-08).
+  target <- as.character(result$target[[1]])
+  if (is.na(target)) {
+    cli::cli_abort(
+      c(
+        "Publication of {.path {key}} is uncertain.",
+        "x" = paste0(
+          "Snowflake's response to the metadata upload ",
+          "could not be interpreted."
+        ),
+        "i" = paste0(
+          "The version may or may not be published; ",
+          "inspect it before writing again."
+        ),
+        "i" = "Nothing was deleted."
+      ),
+      class = "pinsExtras_publication_uncertain",
+      call = call
+    )
+  }
+  got <- fs::path_file(target)
   if (got != file) {
     cli::cli_abort(
       c(
@@ -450,6 +486,18 @@ sf_check_get_result <- function(result, file, key, call = rlang::caller_env()) {
     )
   }
   status <- toupper(as.character(result$status))
+  # An NA status throws on "!=" rather than branching; report it as an
+  # uninterpretable response instead (SEC-08).
+  if (is.na(status)) {
+    cli::cli_abort(
+      c(
+        "Failed to download {.path {key}}.",
+        "x" = "Snowflake's download response could not be interpreted."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
   if (status != "DOWNLOADED") {
     cli::cli_abort(
       c(
@@ -460,7 +508,18 @@ sf_check_get_result <- function(result, file, key, call = rlang::caller_env()) {
       call = call
     )
   }
-  got <- fs::path_file(result$file[[1]])
+  got_file <- as.character(result$file[[1]])
+  if (is.na(got_file)) {
+    cli::cli_abort(
+      c(
+        "Failed to download {.path {key}}.",
+        "x" = "Snowflake's download response could not be interpreted."
+      ),
+      class = "pinsExtras_download_failed",
+      call = call
+    )
+  }
+  got <- fs::path_file(got_file)
   if (got != file) {
     cli::cli_abort(
       c(

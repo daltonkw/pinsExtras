@@ -210,6 +210,19 @@ test_that("sf_check_put_result fails when target is absent, only target_size", {
   )
 })
 
+test_that("sf_check_put_result fails on an NA target", {
+  result <- data.frame(
+    source = "cars.rds", target = NA_character_,
+    status = "UPLOADED", message = "", stringsAsFactors = FALSE
+  )
+  expect_error(
+    pinsExtras:::sf_check_put_result(result, "cars.rds", "cars/v/cars.rds"),
+    class = "pinsExtras_upload_failed",
+    regexp = "could not be interpreted",
+    fixed = TRUE
+  )
+})
+
 # --- sf_check_put_result: explicit failures (4-6) ---
 
 test_that("sf_check_put_result fails on a SKIPPED response", {
@@ -349,6 +362,19 @@ test_that("sf_check_meta_put_result is uncertain when target is absent", {
   result <- data.frame(
     source = "cars.rds", target_size = 1,
     status = "UPLOADED", stringsAsFactors = FALSE
+  )
+  expect_error(
+    pinsExtras:::sf_check_meta_put_result(
+      result, "cars.rds", "cars/v/cars.rds"
+    ),
+    class = "pinsExtras_publication_uncertain"
+  )
+})
+
+test_that("sf_check_meta_put_result is uncertain on an NA target", {
+  result <- data.frame(
+    source = "cars.rds", target = NA_character_,
+    status = "UPLOADED", message = "", stringsAsFactors = FALSE
   )
   expect_error(
     pinsExtras:::sf_check_meta_put_result(
