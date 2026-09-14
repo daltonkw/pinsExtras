@@ -1,3 +1,14 @@
+# pinsExtras 0.1.1
+
+* A `PUT` or `GET` response whose `target`, `file`, or `status` value is
+  missing (`NA`) is now reported with the same classed condition as any other
+  uninterpretable response: `pinsExtras_upload_failed` for a payload upload,
+  `pinsExtras_publication_uncertain` for the metadata upload, and
+  `pinsExtras_download_failed` for a download. Previously such a row raised
+  R's unclassed "missing value where TRUE/FALSE needed" error, which lost the
+  recovery guidance for an ambiguous publication. Reported by the Codex PR
+  reviewer on #1 and by SEC-08 of the 0.1.0 security review.
+
 # pinsExtras 0.1.0
 
 First release. `board_sf_stage()` stores pins in a Snowflake internal stage. This release is mostly about two things: asking Snowflake for far less, and never leaving a pin in a state where it cannot be read.

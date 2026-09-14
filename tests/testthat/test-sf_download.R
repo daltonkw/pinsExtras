@@ -295,6 +295,38 @@ test_that("sf_read_meta parse error names the directory", {
   expect_true(grepl("could not be parsed", msg, fixed = TRUE))
 })
 
+test_that("sf_check_get_result rejects an NA status", {
+  cond <- expect_error(
+    pinsExtras:::sf_check_get_result(
+      data.frame(
+        file = "data.txt", size = 1, status = NA_character_,
+        stringsAsFactors = FALSE
+      ),
+      "data.txt", "cars/v/data.txt"
+    ),
+    class = "pinsExtras_download_failed"
+  )
+  expect_match(
+    conditionMessage(cond), "could not be interpreted", fixed = TRUE
+  )
+})
+
+test_that("sf_check_get_result rejects an NA file", {
+  cond <- expect_error(
+    pinsExtras:::sf_check_get_result(
+      data.frame(
+        file = NA_character_, size = 1, status = "DOWNLOADED",
+        stringsAsFactors = FALSE
+      ),
+      "data.txt", "cars/v/data.txt"
+    ),
+    class = "pinsExtras_download_failed"
+  )
+  expect_match(
+    conditionMessage(cond), "could not be interpreted", fixed = TRUE
+  )
+})
+
 test_that("sf_check_get_result rejects a file_size response without file", {
   cond <- expect_error(
     pinsExtras:::sf_check_get_result(
