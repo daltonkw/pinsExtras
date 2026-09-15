@@ -406,7 +406,7 @@ sf_stage_download <- function(
   # "_pins.yaml" gives fs::path_dir() = ".", which maps to the board root.
   # The trailing slash is the same scoping REMOVE and LIST rely on, so it is
   # added only when the directory is non-empty; the board root is the stage
-  # itself and carries no slash (see sf_stage_exists()).
+  # itself and carries no slash.
   dir <- fs::path_dir(key)
   if (dir == ".") {
     dir <- ""
@@ -531,21 +531,6 @@ sf_check_get_result <- function(result, file, key, call = rlang::caller_env()) {
     )
   }
   invisible(TRUE)
-}
-
-sf_stage_exists <- function(board, path) {
-  # sf_stage_list() appends a trailing slash to a non-empty prefix, so asking
-  # whether a FILE exists would issue a directory prefix that matches nothing
-  # against real Snowflake. List the file's parent instead, and match the file
-  # by its exact normalised (stage-root-relative) name; a sibling such as
-  # data.txt.bak therefore does not count.
-  dir <- fs::path_dir(path)
-  if (dir == ".") {
-    dir <- ""
-  }
-  listing <- sf_stage_list(board, dir)
-  normalised <- sf_normalize_path(board, path)
-  any(listing$name == normalised & !is.na(listing$name))
 }
 
 # Delete a directory and everything under it from the stage.

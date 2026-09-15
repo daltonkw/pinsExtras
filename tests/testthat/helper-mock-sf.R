@@ -295,3 +295,91 @@ sf_mock_get_files <- function(..., status = "DOWNLOADED", missing = character())
     )
   }
 }
+
+
+# ---- shared response builders for the validator tables -------------------
+
+# One PUT response row set, varied by argument.
+#
+# The three response validators (sf_check_put_result,
+# sf_check_meta_put_result, sf_check_get_result) are matrices over one
+# response shape, so the suite builds that shape once here and each table
+# row says how it differs.
+#
+#   n:    the row count. 0 gives an empty response, 2 a multi-row one.
+#   drop: column names to remove, which is how a response missing `target`
+#         or `status` is built.
+#   ...:  replaces that column's value (recycled to `n` rows).
+#   casing: "upper" upper-cases the column names, the other ODBC driver
+#         shape.
+#
+# A NULL response is not built here: a test that needs one passes NULL.
+sf_fixture_put_response <- function(...,
+                                    n = 1L,
+                                    drop = character(),
+                                    extra = NULL,
+                                    casing = c("lower", "upper")) {
+  casing <- match.arg(casing)
+  cols <- base::list(
+    source = "cars.rds",
+    target = "@~/cars/v/cars.rds",
+    source_size = 1024,
+    target_size = 1024,
+    source_compression = "NONE",
+    target_compression = "NONE",
+    status = "UPLOADED",
+    message = ""
+  )
+  sf_fixture_response(cols, base::list(...), n, drop, extra, casing)
+}
+
+# One GET response row set, built and varied exactly like the PUT one.
+sf_fixture_get_response <- function(...,
+                                    n = 1L,
+                                    drop = character(),
+                                    extra = NULL,
+                                    casing = c("lower", "upper")) {
+  casing <- match.arg(casing)
+  cols <- base::list(
+    file = "data.txt",
+    size = 1024,
+    status = "DOWNLOADED",
+    message = ""
+  )
+  sf_fixture_response(cols, base::list(...), n, drop, extra, casing)
+}
+
+# The shared machinery behind the two builders above.
+sf_fixture_response <- function(cols, overrides, n, drop, extra, casing) {
+  cols[names(overrides)] <- overrides
+  cols <- cols[!names(cols) %in% drop]
+  if (!is.null(extra)) {
+    cols[names(extra)] <- extra
+  }
+  cols <- lapply(cols, function(v) rep_len(v, n))
+  out <- do.call(
+    data.frame,
+    c(cols, base::list(stringsAsFactors = FALSE))
+  )
+  # do.call(data.frame) on zero-length columns still yields the right shape,
+  # but the names must survive the recase either way.
+  sf_mock_recase(out, casing)
+}
+
+
+# Build a recording transport and bind it to sf_stage_cmd() for the caller.
+#
+# The suite's twelve-line mock preamble, written once. Takes the same
+# `list`/`put`/`get`/`remove`/`casing` arguments as sf_mock_transport() and
+# returns the same recorder, with the binding already installed and torn
+# down when the calling frame exits -- so it works inside a `for` over a
+# table of cases as well as at the top of a test.
+sf_mock_bind <- function(..., .envir = parent.frame()) {
+  rec <- sf_mock_transport(...)
+  testthat::local_mocked_bindings(
+    sf_stage_cmd = rec$responder,
+    .package = "pinsExtras",
+    .env = .envir
+  )
+  rec
+}

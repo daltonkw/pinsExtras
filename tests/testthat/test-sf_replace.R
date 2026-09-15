@@ -1,200 +1,113 @@
-# Pure decision on a write's action plus the progress helper. Nothing is
-# executed here: U11 carries the plan out. No transport is mocked.
+# The pure write decision, the progress helper, and post-publication
+# cleanup. sf_version_plan() executes nothing: pin_store() carries the plan
+# out, and test-sf_publish.R drives that.
 
-test_that("sf_version_plan creates when no version is published", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing(
-      "cars/20240101T000001Z-aaa/data.txt",
-      "cars/20240101T000002Z-bbb/data.txt",
-      "cars/20240101T000003Z-ccc/data.txt"
+# ---- sf_version_plan ----------------------------------------------------
+
+# An index holding `n` published versions of "cars", oldest first.
+sf_plan_index <- function(n) {
+  versions <- c(
+    "20240101T000001Z-aaa",
+    "20240101T000002Z-bbb",
+    "20240101T000003Z-ccc"
+  )[seq_len(n)]
+  pinsExtras:::sf_published_index(
+    sf_fixture_listing(paste0("cars/", versions, "/data.txt"))
+  )
+}
+
+test_that("sf_version_plan decides create, replace or abort", {
+  new_version <- "20240101T000009Z-zzz"
+  cases <- list(
+    list(
+      name = "nothing published, board versioned",
+      n = 0L, versioned = NULL, board_versioned = TRUE,
+      action = "create", old = character()
+    ),
+    list(
+      # n == 0 always creates, whatever the caller asks for: there is
+      # nothing to replace.
+      name = "nothing published, unversioned write",
+      n = 0L, versioned = FALSE, board_versioned = FALSE,
+      action = "create", old = character()
+    ),
+    list(
+      name = "one version, board versioned",
+      n = 1L, versioned = NULL, board_versioned = TRUE,
+      action = "create", old = character()
+    ),
+    list(
+      # The load-bearing branch: the per-write override beats the
+      # board's own flag, and the single old version is handed back for
+      # cleanup.
+      name = "one version, unversioned write",
+      n = 1L, versioned = FALSE, board_versioned = TRUE,
+      action = "replace", old = "20240101T000001Z-aaa"
+    ),
+    list(
+      name = "one version, unversioned board",
+      n = 1L, versioned = NULL, board_versioned = FALSE,
+      action = "replace", old = "20240101T000001Z-aaa"
+    ),
+    list(
+      # With more than one version published and no override, pins
+      # forces versioning on even for an unversioned board: the board's
+      # own flag is never consulted on this branch.
+      name = "three versions, unversioned board",
+      n = 3L, versioned = NULL, board_versioned = FALSE,
+      action = "create", old = character()
+    ),
+    list(
+      # An explicit versioned = TRUE reaches the effective-flag branch
+      # rather than the n > 1 shortcut above.
+      name = "three versions, versioned write",
+      n = 3L, versioned = TRUE, board_versioned = FALSE,
+      action = "create", old = character()
     )
   )
-  plan <- pinsExtras:::sf_version_plan(
-    idx,
-    "cars",
-    "20240101T000009Z-zzz",
-    versioned = NULL,
-    board_versioned = TRUE
-  )
-  expect_identical(plan$version, "20240101T000009Z-zzz")
-  expect_identical(plan$action, "create")
-  expect_identical(plan$old_versions, character())
-})
-
-test_that("sf_version_plan creates even when unversioned is asked for at n == 0", {
-  idx <- pinsExtras:::sf_published_index(sf_fixture_listing())
-  plan <- pinsExtras:::sf_version_plan(
-    idx,
-    "cars",
-    "20240101T000009Z-zzz",
-    versioned = FALSE,
-    board_versioned = FALSE
-  )
-  expect_identical(plan$action, "create")
-  expect_identical(plan$old_versions, character())
-})
-
-test_that("sf_version_plan creates when a single version exists on a versioned board", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing("cars/20240101T000001Z-aaa/data.txt")
-  )
-  plan <- pinsExtras:::sf_version_plan(
-    idx,
-    "cars",
-    "20240101T000009Z-zzz",
-    versioned = NULL,
-    board_versioned = TRUE
-  )
-  expect_identical(plan$action, "create")
-  expect_identical(plan$old_versions, character())
-})
-
-test_that("sf_version_plan replaces a single version when unversioned", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing("cars/20240101T000001Z-aaa/data.txt")
-  )
-  plan <- pinsExtras:::sf_version_plan(
-    idx,
-    "cars",
-    "20240101T000009Z-zzz",
-    versioned = FALSE,
-    board_versioned = TRUE
-  )
-  expect_identical(plan$action, "replace")
-  expect_identical(plan$old_versions, "20240101T000001Z-aaa")
-})
-
-test_that("sf_version_plan replaces a single version even on an unversioned board", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing("cars/20240101T000001Z-aaa/data.txt")
-  )
-  plan <- pinsExtras:::sf_version_plan(
-    idx,
-    "cars",
-    "20240101T000009Z-zzz",
-    versioned = NULL,
-    board_versioned = FALSE
-  )
-  expect_identical(plan$action, "replace")
-  expect_identical(plan$old_versions, "20240101T000001Z-aaa")
-})
-
-test_that("sf_version_plan creates more-than-one version on an unversioned board", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing(
-      "cars/20240101T000001Z-aaa/data.txt",
-      "cars/20240101T000002Z-bbb/data.txt",
-      "cars/20240101T000003Z-ccc/data.txt"
+  for (case in cases) {
+    plan <- pinsExtras:::sf_version_plan(
+      sf_plan_index(case$n), "cars", new_version,
+      versioned = case$versioned,
+      board_versioned = case$board_versioned
     )
-  )
-  plan <- pinsExtras:::sf_version_plan(
-    idx,
-    "cars",
-    "20240101T000009Z-zzz",
-    versioned = NULL,
-    board_versioned = FALSE
-  )
-  expect_identical(plan$action, "create")
-  expect_identical(plan$old_versions, character())
-})
+    expect_identical(plan$version, new_version, info = case$name)
+    expect_identical(plan$action, case$action, info = case$name)
+    expect_identical(plan$old_versions, case$old, info = case$name)
+  }
 
-test_that("sf_version_plan creates more-than-one version on a versioned board", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing(
-      "cars/20240101T000001Z-aaa/data.txt",
-      "cars/20240101T000002Z-bbb/data.txt",
-      "cars/20240101T000003Z-ccc/data.txt"
-    )
-  )
-  plan <- pinsExtras:::sf_version_plan(
-    idx,
-    "cars",
-    "20240101T000009Z-zzz",
-    versioned = NULL,
-    board_versioned = TRUE
-  )
-  expect_identical(plan$action, "create")
-  expect_identical(plan$old_versions, character())
-})
-
-test_that("sf_version_plan aborts pins_pin_versioned when more than one version is unversionable", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing(
-      "cars/20240101T000001Z-aaa/data.txt",
-      "cars/20240101T000002Z-bbb/data.txt",
-      "cars/20240101T000003Z-ccc/data.txt"
-    )
-  )
+  # An existing versioned pin cannot be rewritten without versions.
   expect_error(
     pinsExtras:::sf_version_plan(
-      idx,
-      "cars",
-      "20240101T000009Z-zzz",
-      versioned = FALSE,
-      board_versioned = TRUE
+      sf_plan_index(3L), "cars", new_version,
+      versioned = FALSE, board_versioned = TRUE
     ),
     class = "pins_pin_versioned"
   )
 })
 
-test_that("sf_version_plan rejects a duplicate new version when versioned is NULL", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing("cars/20240101T000002Z-bbb/data.txt")
-  )
-  expect_error(
-    pinsExtras:::sf_version_plan(
-      idx,
-      "cars",
-      "20240101T000002Z-bbb",
-      versioned = NULL
-    ),
-    "same as the most recent version",
-    fixed = TRUE
-  )
+test_that("sf_version_plan rejects a new version that is already published", {
+  # The duplicate check runs before `versioned` is read, so the abort is
+  # the same whatever the caller asked for.
+  for (versioned in list(NULL, TRUE, FALSE)) {
+    expect_error(
+      pinsExtras:::sf_version_plan(
+        sf_plan_index(2L), "cars", "20240101T000002Z-bbb",
+        versioned = versioned
+      ),
+      "same as the most recent version",
+      fixed = TRUE,
+      info = paste("versioned =", format(versioned))
+    )
+  }
 })
 
-test_that("sf_version_plan rejects a duplicate new version when versioned is TRUE", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing("cars/20240101T000002Z-bbb/data.txt")
-  )
-  expect_error(
-    pinsExtras:::sf_version_plan(
-      idx,
-      "cars",
-      "20240101T000002Z-bbb",
-      versioned = TRUE
-    ),
-    "same as the most recent version",
-    fixed = TRUE
-  )
-})
+# ---- sf_inform ----------------------------------------------------------
 
-test_that("sf_version_plan rejects a duplicate new version when versioned is FALSE", {
-  idx <- pinsExtras:::sf_published_index(
-    sf_fixture_listing("cars/20240101T000002Z-bbb/data.txt")
-  )
-  expect_error(
-    pinsExtras:::sf_version_plan(
-      idx,
-      "cars",
-      "20240101T000002Z-bbb",
-      versioned = FALSE
-    ),
-    "same as the most recent version",
-    fixed = TRUE
-  )
-})
-
-# ---- sf_inform ---------------------------------------------------------
-
-test_that("sf_inform emits a progress message", {
-  expect_message(
-    pinsExtras:::sf_inform("Creating new version 20240101T000002Z-bbb"),
-    "Creating new version"
-  )
-})
-
-test_that("sf_inform interpolates a caller's local", {
+test_that("sf_inform interpolates a caller's local into the message", {
+  # .envir is threaded through to cli so it can find the CALLER's locals.
+  # Dropping it would break interpolation silently, and every pin_store()
+  # test sets pins.quiet = TRUE, so this is the only guard.
   f <- function() {
     v <- "20240101T000002Z-bbb"
     pinsExtras:::sf_inform("Creating new version {.val {v}}")
@@ -203,15 +116,13 @@ test_that("sf_inform interpolates a caller's local", {
 })
 
 test_that("sf_inform is silent when pins.quiet is set", {
+  # The documented user-facing switch. `v` is undefined here, so the fact
+  # that nothing errors also proves the early return happens before any
+  # interpolation.
   withr::local_options(pins.quiet = TRUE)
   expect_no_message(
     pinsExtras:::sf_inform("Creating new version {.val {v}}")
   )
-})
-
-test_that("sf_inform is silent and returns invisibly under pins.quiet", {
-  withr::local_options(pins.quiet = TRUE)
-  expect_invisible(pinsExtras:::sf_inform("anything"))
 })
 
 # ---- sf_cleanup_old_versions --------------------------------------------
@@ -220,16 +131,38 @@ test_that("sf_inform is silent and returns invisibly under pins.quiet", {
 # old one. This function reports the versions whose removal could not be
 # confirmed; it never aborts and never warns, whatever the transport does.
 
+V1 <- "20240101T000001Z-aaa"
+V2 <- "20240101T000002Z-bbb"
+V3 <- "20240101T000003Z-ccc"
+
+# A LIST responder that answers the final pin-scoped listing with
+# `remaining` and every confirm listing with nothing.
+sf_cleanup_listing <- function(board, remaining) {
+  function(sql) {
+    if (endsWith(sql, "cars/'")) {
+      sf_fixture_listing(
+        paste0("cars/", remaining, "/cars.rds"),
+        board = board
+      )
+    } else {
+      sf_fixture_listing()
+    }
+  }
+}
+
+# A REMOVE responder that fails the marker delete and succeeds otherwise.
+sf_cleanup_marker_fails <- function(sql) {
+  if (grepl("PATTERN", sql, fixed = TRUE)) {
+    stop("403 denied")
+  }
+  data.frame(name = character(), result = character(), stringsAsFactors = FALSE)
+}
+
 test_that("an empty request issues no commands at all", {
+  # Step 0 returns before even the final listing, so a listing responder
+  # that would fail is never reached.
   board <- sf_mock_board()
-  name <- "cars"
-  rec <- sf_mock_transport(
-    list = function(sql) stop("must not be reached")
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
+  rec <- sf_mock_bind(list = function(sql) stop("must not be reached"))
 
   out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", character())
 
@@ -237,17 +170,13 @@ test_that("an empty request issues no commands at all", {
   expect_length(rec$calls, 0L)
 })
 
-test_that("one clean version reports nothing and issues four commands", {
+test_that("a clean version is removed marker first, then directory", {
+  # The order is what makes cleanup safe: drop the publication marker,
+  # confirm it is gone, only then delete the directory.
   board <- sf_mock_board()
-  name <- "cars"
-  v <- "20240101T000001Z-aaa"
-  rec <- sf_mock_transport()
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
+  rec <- sf_mock_bind()
 
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", v)
+  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", V1)
 
   expect_identical(out, character())
   expect_length(rec$calls, 4L)
@@ -255,392 +184,134 @@ test_that("one clean version reports nothing and issues four commands", {
   expect_identical(
     rec$calls[[1]],
     paste0(
-      "REMOVE '@~/cars/", v, "/' PATTERN = '^(cars/", v, "/)?data\\\\.txt$'"
+      "REMOVE '@~/cars/", V1, "/' PATTERN = '^(cars/", V1, "/)?data\\\\.txt$'"
     )
   )
+
+  # Two versions run the same three steps each, then one final listing.
+  board2 <- sf_mock_board()
+  rec2 <- sf_mock_bind()
+
+  out2 <- pinsExtras:::sf_cleanup_old_versions(board2, "cars", c(V1, V2))
+
+  expect_identical(out2, character())
+  expect_length(rec2$calls, 7L)
+  expect_length(grep("^LIST ", rec2$calls), 3L)
+  expect_identical(
+    rec2$calls[[1]],
+    paste0(
+      "REMOVE '@~/cars/", V1, "/' PATTERN = '^(cars/", V1, "/)?data\\\\.txt$'"
+    )
+  )
+  expect_identical(rec2$calls[[3]], paste0("REMOVE '@~/cars/", V1, "/'"))
+  expect_identical(
+    rec2$calls[[4]],
+    paste0(
+      "REMOVE '@~/cars/", V2, "/' PATTERN = '^(cars/", V2, "/)?data\\\\.txt$'"
+    )
+  )
+  expect_identical(rec2$calls[[7]], "LIST '@~/cars/'")
 })
 
-test_that("two clean versions report nothing and issue seven commands in order", {
+test_that("a failing marker REMOVE stops the loop and reports both versions", {
+  # A later version is never attempted after an earlier one fails, and the
+  # failure is never raised or warned about: a cleanup problem must not
+  # turn a successful write into a failed one.
   board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport()
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
+  rec <- sf_mock_bind(
+    remove = sf_cleanup_marker_fails,
+    list = sf_cleanup_listing(board, c(V1, V2))
   )
 
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-
-  expect_identical(out, character())
-  expect_length(rec$calls, 7L)
-  expect_length(grep("^LIST ", rec$calls), 3L)
-  expect_identical(
-    rec$calls[[1]],
-    paste0(
-      "REMOVE '@~/cars/", v1, "/' PATTERN = '^(cars/", v1, "/)?data\\\\.txt$'"
-    )
-  )
-  expect_identical(
-    rec$calls[[3]],
-    paste0("REMOVE '@~/cars/", v1, "/'")
-  )
-  expect_identical(
-    rec$calls[[4]],
-    paste0(
-      "REMOVE '@~/cars/", v2, "/' PATTERN = '^(cars/", v2, "/)?data\\\\.txt$'"
-    )
-  )
-  expect_identical(rec$calls[[7]], "LIST '@~/cars/'")
-})
-
-test_that("data.txt REMOVE raising on V1 stops the loop and reports both", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
-    remove = function(sql) {
-      if (grepl("PATTERN", sql, fixed = TRUE)) {
-        stop("403 denied")
-      }
-      data.frame(
-        name = character(), result = character(),
-        stringsAsFactors = FALSE
-      )
-    },
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        sf_fixture_listing(
-          paste0("cars/", v1, "/cars.rds"),
-          paste0("cars/", v2, "/cars.rds")
-        )
-      } else {
-        sf_fixture_listing()
-      }
-    }
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
+  out <- expect_no_warning(
+    pinsExtras:::sf_cleanup_old_versions(board, "cars", c(V1, V2))
   )
 
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-
-  expect_identical(out, c(v1, v2))
+  expect_identical(out, c(V1, V2))
   # the failing REMOVE and the final listing only; V2 is never attempted
   expect_length(rec$calls, 2L)
   expect_length(grep("^REMOVE ", rec$calls), 1L)
 })
 
-test_that("a confirming LIST that still shows data.txt stops V1 with no deletes", {
+test_that("a confirming LIST that still shows data.txt deletes no directory", {
+  # An unconfirmed marker deletion must never be followed by a directory
+  # delete: that is what stops a half-deleted version being wiped.
   board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
+  rec <- sf_mock_bind(
     list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
+      if (endsWith(sql, "cars/'")) {
         sf_fixture_listing(
-          paste0("cars/", v1, "/cars.rds"),
-          paste0("cars/", v2, "/cars.rds")
+          paste0("cars/", V1, "/cars.rds"),
+          paste0("cars/", V2, "/cars.rds")
         )
       } else {
-        sf_fixture_listing(paste0("cars/", v1, "/data.txt"))
+        sf_fixture_listing(paste0("cars/", V1, "/data.txt"))
       }
     }
   )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
 
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
+  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(V1, V2))
 
-  expect_identical(out, c(v1, v2))
+  expect_identical(out, c(V1, V2))
   # REMOVE, confirming LIST, final LIST: zero directory deletes
   expect_length(rec$calls, 3L)
   expect_length(grep("REMOVE ", rec$calls), 1L)
   expect_length(grep("^LIST ", rec$calls), 2L)
 })
 
-test_that("a final listing that raises reports every version after clean loop", {
+test_that("a final listing that raises reports every version asked about", {
+  # Nothing could be confirmed, so the caller is told about all of them.
   board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
+  rec <- sf_mock_bind(
     list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
+      if (endsWith(sql, "cars/'")) {
         stop("dead connection")
       }
       sf_fixture_listing()
     }
   )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
+
+  out <- expect_no_warning(
+    pinsExtras:::sf_cleanup_old_versions(board, "cars", c(V1, V2))
   )
 
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-
-  expect_identical(out, c(v1, v2))
+  expect_identical(out, c(V1, V2))
   expect_length(rec$calls, 7L)
 })
 
-test_that("a final listing that raises after one clean version returns that version", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  rec <- sf_mock_transport(
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        stop("dead connection")
-      }
-      sf_fixture_listing()
-    }
+test_that("the final listing decides which versions are reported", {
+  # The listing is the authority, not the sequence of REMOVEs: every
+  # REMOVE below reports success.
+  cases <- list(
+    list(
+      # V1 is gone and V3 was never asked about, so only V2 is reported.
+      name = "one asked-about version remains",
+      remaining = c(V2, V3), want = V2
+    ),
+    list(
+      name = "both asked-about versions remain",
+      remaining = c(V1, V2), want = c(V1, V2)
+    )
   )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
+  for (case in cases) {
+    board <- sf_mock_board()
+    rec <- sf_mock_bind(list = sf_cleanup_listing(board, case$remaining))
 
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", v1)
+    out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(V1, V2))
 
-  expect_identical(out, v1)
-  expect_length(rec$calls, 4L)
-})
-
-test_that("the final listing decides truth: only a still-present version is reported", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        sf_fixture_listing(paste0("cars/", v2, "/cars.rds"))
-      } else {
-        sf_fixture_listing()
-      }
-    }
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
-
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-
-  # V1 removed cleanly, so only V2 remains
-  expect_identical(out, v2)
-  expect_length(rec$calls, 7L)
-})
-
-test_that("the final listing reports a version not asked for as nothing", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  v3 <- "20240101T000003Z-ccc"
-  rec <- sf_mock_transport(
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        sf_fixture_listing(paste0("cars/", v3, "/cars.rds"))
-      } else {
-        sf_fixture_listing()
-      }
-    }
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
-
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-
-  # only the versions asked about are ever reported
-  expect_identical(out, character())
-  expect_length(rec$calls, 7L)
-})
-
-test_that("all REMOVEs reported success but files remain are reported", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        sf_fixture_listing(
-          paste0("cars/", v1, "/cars.rds"),
-          paste0("cars/", v2, "/cars.rds")
-        )
-      } else {
-        sf_fixture_listing()
-      }
-    }
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
-
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-
-  # the loop removed everything it was told, but the listing says both remain
-  expect_identical(out, c(v1, v2))
-  expect_length(rec$calls, 7L)
+    expect_identical(out, case$want, info = case$name)
+    expect_identical(length(rec$calls), 7L, info = case$name)
+  }
 })
 
 test_that("the board path is honoured when deciding what remains", {
+  # Without the sf_board_relative() strip the "team-data/" prefix would
+  # never match and every other cleanup test would still pass.
   board <- sf_mock_board(path = "team-data")
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  rec <- sf_mock_transport(
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        sf_fixture_listing(paste0("cars/", v1, "/cars.rds"), board = board)
-      } else {
-        sf_fixture_listing()
-      }
-    }
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
+  rec <- sf_mock_bind(list = sf_cleanup_listing(board, V1))
 
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", v1)
+  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", V1)
 
-  # without sf_board_relative() the "team-data/" prefix would never match
-  expect_identical(out, v1)
+  expect_identical(out, V1)
   expect_length(rec$calls, 4L)
-})
-
-test_that("loop stops early and the final listing raises reports every version", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
-    remove = function(sql) {
-      if (grepl("PATTERN", sql, fixed = TRUE)) {
-        stop("403 denied")
-      }
-      data.frame(
-        name = character(), result = character(),
-        stringsAsFactors = FALSE
-      )
-    },
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        stop("dead connection")
-      }
-      sf_fixture_listing()
-    }
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
-
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-
-  expect_identical(out, c(v1, v2))
-  # the failing REMOVE, then the final listing; V2 is never attempted
-  expect_length(rec$calls, 2L)
-})
-
-test_that("expect_no_error and expect_no_warning around a raising final listing", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        stop("dead connection")
-      }
-      sf_fixture_listing()
-    }
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
-
-  result <- expect_no_error(
-    expect_no_warning(
-      pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-    )
-  )
-  expect_identical(result, c(v1, v2))
-})
-
-test_that("expect_no_error and expect_no_warning around a failing data.txt REMOVE", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
-    remove = function(sql) {
-      if (grepl("PATTERN", sql, fixed = TRUE)) {
-        stop("403 denied")
-      }
-      data.frame(
-        name = character(), result = character(),
-        stringsAsFactors = FALSE
-      )
-    },
-    list = function(sql) sf_fixture_listing(
-      paste0("cars/", v1, "/cars.rds"),
-      paste0("cars/", v2, "/cars.rds")
-    ),
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
-
-  result <- expect_no_error(
-    expect_no_warning(
-      pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-    )
-  )
-  expect_identical(result, c(v1, v2))
-})
-
-test_that("every failure case returns a plain character vector, never NULL", {
-  board <- sf_mock_board()
-  name <- "cars"
-  v1 <- "20240101T000001Z-aaa"
-  v2 <- "20240101T000002Z-bbb"
-  rec <- sf_mock_transport(
-    remove = function(sql) {
-      if (grepl("PATTERN", sql, fixed = TRUE)) {
-        stop("403 denied")
-      }
-      data.frame(
-        name = character(), result = character(),
-        stringsAsFactors = FALSE
-      )
-    },
-    list = function(sql) {
-      if (endsWith(sql, paste0(name, "/'"))) {
-        stop("dead connection")
-      }
-      sf_fixture_listing()
-    }
-  )
-  testthat::local_mocked_bindings(
-    sf_stage_cmd = rec$responder,
-    .package = "pinsExtras"
-  )
-
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(v1, v2))
-
-  expect_type(out, "character")
-  expect_length(out, 2L)
 })

@@ -2,12 +2,6 @@
 
 sf_manifest_pin_yaml_filename <- "_pins.yaml"
 
-sf_end_with_slash <- function(x) {
-  has_slash <- grepl("/$", x)
-  x[!has_slash] <- paste0(x[!has_slash], "/")
-  x
-}
-
 sf_check_pin_name <- function(name, call = rlang::caller_env()) {
   # Not a string is first: more than one condition can be true at once, and
   # this order is the contract.
