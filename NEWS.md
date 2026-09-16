@@ -1,9 +1,17 @@
 # pinsExtras 0.1.3
 
-Test suite consolidation. No user-facing behaviour changes.
+Test suite consolidation, and one fix.
+
+* `board_deparse()` now carries a custom `cache` through to the rebuilt
+  board. Previously the deparsed expression omitted it, so a board created
+  with the per-account cache the documentation recommends was rebuilt with
+  the default shared one. A board using the default cache still deparses
+  without a `cache` argument, so the expression stays portable across
+  machines, as pins' own boards do. Found by an independent review of the
+  test suite (gpt-6-astra).
 
 * The test suite was re-read as a whole and cut from 385 `test_that()`
-  blocks to 66, keeping only tests that guard a contract with Snowflake,
+  blocks to 60, keeping only tests that guard a contract with Snowflake,
   pins or the user: one table-driven test per validator matrix instead of
   one block per cell, the per-verb request-count file folded into the
   tests that already assert each operation's exact command sequence, and

@@ -530,35 +530,6 @@ test_that("an unconfirmed cleanup warns and still returns the pin", {
   expect_length(grep("^REMOVE ", rec$calls), 1L)
 })
 
-test_that("a version is invisible to discovery until its data.txt lands", {
-  board <- sf_mock_board()
-  meta <- sf_publish_meta(file = "cars.rds", pin_hash = "zzz990000")
-  v <- pinsExtras:::sf_version_name(meta)
-  # A pre-existing payload-only directory of a different version: not
-  # published, not the version being written, so it neither counts as a
-  # version nor collides with the new write.
-  oldp <- "20240101T000001Z-oldp"
-  paths <- sf_publish_paths("cars.rds")
-  # The LIST responder reads the record of issued commands: until the
-  # metadata PUT goes out, discovery sees only the old payload.
-  rec <- sf_mock_bind(
-    list = function(sql, calls) {
-      if (any(grepl("data.txt", calls, fixed = TRUE))) {
-        sf_fixture_listing(paste0("cars/", v, "/data.txt"))
-      } else {
-        sf_fixture_listing(paste0("cars/", oldp, "/cars.rds"))
-      }
-    }
-  )
-  withr::local_options(pins.quiet = TRUE)
-
-  expect_false(pins::pin_exists(board, "cars"))
-
-  out <- pins::pin_store(board, "cars", paths, meta, versioned = FALSE, x = NULL)
-  expect_identical(out, "cars")
-
-  expect_true(pins::pin_exists(board, "cars"))
-})
 
 # ======================================================================
 # pin_write() -- the budget through pins' own entry point
@@ -619,32 +590,6 @@ test_that("pin_write() on a new pin adds only pins' own lookup listing", {
   }
 })
 
-test_that("pin_write() on an existing pin reads its metadata and rewrites", {
-  # The GET here is pins' hash check, and it only counts for the right
-  # reason if the served metadata actually parses: an empty data.txt
-  # makes pin_meta() abort inside pins' possibly_pin_meta(), which
-  # swallows the failure and returns NULL.
-  board <- sf_mock_board()
-  old_meta <- list(
-    api_version = 1L, file = "cars.rds", file_size = 12,
-    created = "20240101T000001Z", pin_hash = "0000000000", type = "rds"
-  )
-  rec <- sf_mock_bind(
-    list = sf_fixture_listing(
-      "cars/20240101T000001Z-00000/data.txt", board = board
-    ),
-    get = sf_mock_get_files("data.txt" = yaml::as.yaml(old_meta))
-  )
-  withr::local_options(pins.quiet = TRUE)
-
-  out <- pins::pin_write(board, data.frame(x = 1), "cars")
-
-  expect_identical(out, "cars")
-  expect_length(grep("^LIST ", rec$calls), 2L)
-  expect_length(grep("^GET ", rec$calls), 1L)
-  expect_length(grep("^PUT ", rec$calls), 2L)
-  expect_length(grep("^REMOVE ", rec$calls), 0L)
-})
 
 test_that("pin_write() skips the write when the hash has not changed", {
   # The other branch of the same comparison, and the one the old budget

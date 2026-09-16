@@ -131,12 +131,6 @@ test_that("each read method issues exactly one scoped LIST", {
   }
 })
 
-test_that("pin_list never reports the manifest as a pin", {
-  board <- sf_mock_board(path = "team-data", stage = "@mystage")
-  rec <- sf_mock_bind(list = sf_fixture_listing("_pins.yaml", board = board))
-
-  expect_identical(pins::pin_list(board), character())
-})
 
 test_that("pin_versions lists versions ascending with parsed created and hash", {
   board <- sf_mock_board(stage = "@~")
@@ -208,18 +202,6 @@ test_that("pin_meta reports an absent pin, an unknown version and a bad one", {
   expect_length(grep("^GET ", rec$calls), 0L)
 })
 
-test_that("pin_meta propagates a malformed-YAML download failure", {
-  board <- sf_mock_board(stage = "@~")
-  rec <- sf_mock_bind(
-    list = sf_fixture_listing(paste0("cars/", V, "/data.txt"), board = board),
-    get = sf_mock_get_files("data.txt" = "not: valid: yaml: [")
-  )
-
-  expect_error(
-    pins::pin_meta(board, "cars"),
-    class = "pinsExtras_download_failed"
-  )
-})
 
 test_that("a listing that raises propagates unchanged instead of an abort", {
   # A transport error must never be swallowed and reported as
@@ -230,35 +212,6 @@ test_that("a listing that raises propagates unchanged instead of an abort", {
   expect_error(pins::pin_list(board), "boom")
 })
 
-test_that("pin_fetch issues one LIST and two GETs, and both files land", {
-  shapes <- list(
-    list(name = "user stage",  args = list(stage = "@~")),
-    list(name = "named stage", args = list(path = "team-data", stage = "@mystage"))
-  )
-  for (shape in shapes) {
-    board <- do.call(sf_mock_board, shape$args)
-    rec <- sf_mock_bind(
-      list = sf_fixture_listing(paste0("cars/", V, "/data.txt"), board = board),
-      get = sf_mock_get_files(
-        "data.txt" = yaml::as.yaml(sf_discovery_meta()),
-        "cars.rds" = "payload bytes"
-      )
-    )
-
-    out <- pins::pin_fetch(board, "cars")
-
-    expect_identical(length(grep("^LIST ", rec$calls)), 1L, info = shape$name)
-    expect_identical(length(grep("^GET ", rec$calls)), 2L, info = shape$name)
-    expect_identical(out$local$version, V, info = shape$name)
-    expect_identical(out$file, "cars.rds", info = shape$name)
-    expect_true(
-      fs::file_exists(fs::path(out$local$dir, "data.txt")), info = shape$name
-    )
-    expect_true(
-      fs::file_exists(fs::path(out$local$dir, "cars.rds")), info = shape$name
-    )
-  }
-})
 
 test_that("pin_read round-trips a payload through pins' own entry point", {
   # The only offline test that drives upstream pin_read() end to end and

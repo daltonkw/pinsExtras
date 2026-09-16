@@ -57,6 +57,20 @@ test_that("board_deparse rebuilds an equivalent board", {
   expect_identical(rebuilt$path, board$path)
   expect_identical(rebuilt$versioned, board$versioned)
   expect_identical(rebuilt$connect_args, connect_args)
+  # sf_mock_board() supplies its own cache, which is a deliberate setting
+  # and must survive the round trip.
+  expect_identical(as.character(rebuilt$cache), as.character(board$cache))
+
+  # A board that took the default cache gets a machine-specific absolute
+  # path, so the expression leaves it out and stays portable.
+  default_board <- board_sf_stage(
+    conn = fake_conn,
+    stage = "@mystage",
+    path = "team-data",
+    connect_args = connect_args
+  )
+  default_expr <- pins::board_deparse(default_board)
+  expect_false("cache" %in% names(as.list(default_expr)))
 })
 
 test_that("board_deparse aborts when the board stored no connect_args", {

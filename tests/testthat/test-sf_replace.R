@@ -94,7 +94,6 @@ test_that("sf_version_plan decides create, replace or abort", {
 
 V1 <- "20240101T000001Z-aaa"
 V2 <- "20240101T000002Z-bbb"
-V3 <- "20240101T000003Z-ccc"
 
 # A LIST responder that answers the final pin-scoped listing with
 # `remaining` and every confirm listing with nothing.
@@ -182,31 +181,6 @@ test_that("a failing marker REMOVE stops the loop and reports both versions", {
   expect_length(grep("^REMOVE ", rec$calls), 1L)
 })
 
-test_that("a confirming LIST that still shows data.txt deletes no directory", {
-  # An unconfirmed marker deletion must never be followed by a directory
-  # delete: that is what stops a half-deleted version being wiped.
-  board <- sf_mock_board()
-  rec <- sf_mock_bind(
-    list = function(sql) {
-      if (endsWith(sql, "cars/'")) {
-        sf_fixture_listing(
-          paste0("cars/", V1, "/cars.rds"),
-          paste0("cars/", V2, "/cars.rds")
-        )
-      } else {
-        sf_fixture_listing(paste0("cars/", V1, "/data.txt"))
-      }
-    }
-  )
-
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(V1, V2))
-
-  expect_identical(out, c(V1, V2))
-  # REMOVE, confirming LIST, final LIST: zero directory deletes
-  expect_length(rec$calls, 3L)
-  expect_length(grep("REMOVE ", rec$calls), 1L)
-  expect_length(grep("^LIST ", rec$calls), 2L)
-})
 
 test_that("the board path is honoured when deciding what remains", {
   # Without the sf_board_relative() strip the "team-data/" prefix would

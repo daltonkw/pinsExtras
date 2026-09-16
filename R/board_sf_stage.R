@@ -232,7 +232,7 @@ board_sf_stage <- function(
 
   # Create a unique cache directory based on stage and path
   # This ensures different boards don't share cache even if using same stage
-  cache <- cache %||% pins::board_cache_path(paste0("sf-", digest::digest(paste(stage, path))))
+  cache <- cache %||% sf_default_cache(stage, path)
 
   # Create the board object with all necessary components
   pins::new_board(
@@ -246,6 +246,13 @@ board_sf_stage <- function(
     path = path,                 # Path prefix within stage
     connect_args = connect_args  # For board_deparse() recreation
   )
+}
+
+# The cache directory board_sf_stage() uses when the caller supplies none.
+# Derived from the stage and board path alone, so it is stable for a given
+# board but specific to this machine. board_deparse() compares against it.
+sf_default_cache <- function(stage, path) {
+  pins::board_cache_path(paste0("sf-", digest::digest(paste(stage, path))))
 }
 
 #' @export
@@ -500,6 +507,19 @@ board_deparse.pins_board_sf_stage <- function(board, ...) {
   # Build an R expression that recreates the DBI connection
   connect_call <- rlang::expr(DBI::dbConnect(odbc::odbc(), !!!board$connect_args))
 
+  # A default cache is a machine-specific absolute path, and pins' own
+  # boards deliberately leave it out of deparse so the expression stays
+  # portable; a user-supplied cache is a deliberate setting -- the Security
+  # section tells users to pass a distinct one per account -- so it must
+  # survive. Include it only when it differs from the default.
+  default_cache <- sf_default_cache(board$stage, board$path)
+  cache <- if (identical(as.character(board$cache),
+                         as.character(default_cache))) {
+    NULL
+  } else {
+    as.character(board$cache)
+  }
+
   # Build the board_sf_stage() call with all necessary arguments
   # compact() removes NULL values
   board_args <- purrr::compact(list(
@@ -507,7 +527,8 @@ board_deparse.pins_board_sf_stage <- function(board, ...) {
     stage = board$stage,
     path = board$path,
     connect_args = board$connect_args,
-    versioned = board$versioned
+    versioned = board$versioned,
+    cache = cache
   ))
 
   # Return an expression that recreates this board
