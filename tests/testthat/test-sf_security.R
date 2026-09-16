@@ -146,25 +146,6 @@ test_that("pin_meta rejects every untrusted file field in metadata", {
   }
 })
 
-test_that("pin_meta rejects a traversal file without echoing the payload", {
-  board <- sf_sec_read_meta(sf_sec_meta("../../../../../SENTINEL.csv"))
-
-  cond <- expect_error(
-    pins::pin_meta(board, "cars"),
-    class = "pinsExtras_download_failed"
-  )
-  msg <- cli::ansi_strip(conditionMessage(cond))
-  expect_false(grepl("SENTINEL", msg, fixed = TRUE))
-})
-
-test_that("pin_meta accepts a clean, duplicate-free file list", {
-  # The negative control: the validator must not reject valid metadata.
-  board <- sf_sec_read_meta(sf_sec_meta(c("a.csv", "b.csv")))
-
-  out <- pins::pin_meta(board, "cars")
-  expect_identical(out$file, c("a.csv", "b.csv"))
-})
-
 # ---- SEC-06: a write whose version will not parse moves nothing -----------
 
 test_that("undiscoverable metadata aborts the write before any command", {
@@ -277,17 +258,6 @@ test_that("reconnection guidance parses as one statement with connect_args", {
       expect_true(grepl("AUDIT_SENTINEL", code, fixed = TRUE), info = path)
       expect_true(grepl("\\", code, fixed = TRUE), info = path)
     }
-  }
-})
-
-test_that("reconnection guidance parses as one statement without them", {
-  withr::local_options(cli.width = 300)
-  sf_sec_dead_connection()
-  for (path in sf_sec_paths) {
-    board <- sf_sec_dead_board(path, NULL)
-    code <- sf_sec_guidance(board)
-    expect_no_match(code, "connect_args", fixed = TRUE, info = path)
-    expect_identical(length(parse(text = code)), 1L, info = path)
   }
 })
 

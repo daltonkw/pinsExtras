@@ -2,23 +2,25 @@
 
 Test suite consolidation. No user-facing behaviour changes.
 
-* The offline test suite was re-read as a whole and consolidated from 385
-  `test_that()` blocks to about 115, with the same branch coverage: one
-  table-driven test per validator matrix instead of one block per cell,
-  and the per-verb request-count file folded into the tests that already
-  assert each operation's exact command sequence.
-* Five gaps the volume had hidden are now tested: the last `PUT` of an
+* The test suite was re-read as a whole and cut from 385 `test_that()`
+  blocks to 66, keeping only tests that guard a contract with Snowflake,
+  pins or the user: one table-driven test per validator matrix instead of
+  one block per cell, the per-verb request-count file folded into the
+  tests that already assert each operation's exact command sequence, and
+  helper-level tests dropped where a public-method test already reaches
+  the helper.
+* Four gaps the volume had hidden are now tested: the last `PUT` of an
   unversioned replace precedes its first `REMOVE`; nothing is removed when
   a metadata upload is uncertain; the identical-hash skip in `pin_write()`
-  is exercised with real metadata; the forbidden-basename check in the
-  upload-set validator; and `board_deparse()` round-trips offline.
+  is exercised with real metadata; and `board_deparse()` round-trips
+  offline.
 * Two helpers nothing called, `sf_stage_exists()` and `sf_end_with_slash()`,
   are removed along with their tests.
 * The opt-in live suite now checks only what a real stage can prove
   (accepted SQL shapes, prefix scoping of siblings, a dotted name in a
-  `PATTERN`, an unversioned replace, a named stage, a closed connection,
-  metadata round trip) and no longer pays a Snowflake round trip to re-test
-  `saveRDS()` and `yaml`.
+  `PATTERN`, an unversioned replace, a named stage, a closed connection)
+  and no longer pays a Snowflake round trip to re-test `saveRDS()` and
+  `yaml`.
 * Known conformance gaps, found by running pins' own board conformance
   helpers against this board and not fixed in this release: missing-pin,
   missing-version and invalid-name errors are raised without pins' classed

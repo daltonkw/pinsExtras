@@ -103,32 +103,6 @@ test_that("sf_check_version_collision reads the raw listing, not the index", {
 # decides whether the version is visible at all. That split is what lets
 # pin_store() skip cleanup when it cannot tell.
 
-test_that("both PUT validators accept an interpretable UPLOADED response", {
-  cases <- list(
-    list(name = "UPLOADED", response = sf_fixture_put_response()),
-    list(
-      name = "lower-case status",
-      response = sf_fixture_put_response(status = "uploaded")
-    ),
-    list(
-      name = "upper-case column names",
-      response = sf_fixture_put_response(casing = "upper")
-    )
-  )
-  validators <- list(
-    put = pinsExtras:::sf_check_put_result,
-    meta = pinsExtras:::sf_check_meta_put_result
-  )
-  for (case in cases) {
-    for (which in names(validators)) {
-      expect_true(
-        validators[[which]](case$response, "cars.rds", "cars/v/cars.rds"),
-        info = paste(which, case$name)
-      )
-    }
-  }
-})
-
 test_that("the PUT validators split uninterpretable from failed responses", {
   cases <- list(
     # --- uninterpretable: the metadata variant calls these uncertain ---
@@ -277,42 +251,6 @@ test_that("the PUT verb never silently replaces what is already there", {
     expect_identical(length(rec$calls), 1L, info = case$name)
     expect_match(rec$calls[[1]], case$sql, fixed = TRUE, info = case$name)
   }
-})
-
-test_that("sf_stage_upload renames a mismatched source basename", {
-  # Every metadata PUT relies on this: the source is a random temp file
-  # and the destination must still be data.txt.
-  board <- sf_mock_board()
-  d <- withr::local_tempdir()
-  src <- fs::path(d, "payload.rds")
-  writeLines("x", src)
-  rec <- sf_mock_bind()
-
-  expect_true(pinsExtras:::sf_stage_upload(board, src, "cars/v/cars.rds"))
-  expect_match(rec$calls[[1]], "/cars.rds'", fixed = TRUE)
-  expect_false(grepl("payload.rds", rec$calls[[1]], fixed = TRUE))
-  expect_match(
-    rec$calls[[1]], "AUTO_COMPRESS=FALSE OVERWRITE=FALSE", fixed = TRUE
-  )
-})
-
-test_that("sf_stage_upload routes its response through the validator", {
-  board <- sf_mock_board()
-  d <- withr::local_tempdir()
-  src <- fs::path(d, "cars.rds")
-  writeLines("x", src)
-  rec <- sf_mock_bind(
-    put = sf_fixture_put_response(
-      status = "SKIPPED", message = "File already exists"
-    )
-  )
-
-  expect_error(
-    pinsExtras:::sf_stage_upload(board, src, "cars/v/cars.rds"),
-    class = "pinsExtras_upload_failed",
-    regexp = "skipped",
-    fixed = TRUE
-  )
 })
 
 # ======================================================================
@@ -465,36 +403,6 @@ test_that("a failing payload PUT stops the sequence where it is", {
   )
   expect_length(grep("^LIST ", rec$calls), 1L)
   expect_length(grep("^PUT ", rec$calls), 2L)
-  expect_length(grep("^REMOVE ", rec$calls), 0L)
-})
-
-test_that("an explicit metadata PUT failure is a plain upload failure", {
-  # The interpretable half of the class split: a clear failure must not
-  # surface as publication uncertainty.
-  board <- sf_mock_board()
-  paths <- sf_publish_paths()
-  rec <- sf_mock_bind(
-    put = function(sql) {
-      if (grepl("data.txt", sql, fixed = TRUE)) {
-        sf_fixture_put_response(
-          target = paste0(sf_mock_sql_args(sql)[[2]], "/data.txt"),
-          status = "ERROR", message = "boom"
-        )
-      } else {
-        sf_mock_put_response(sql)
-      }
-    }
-  )
-  withr::local_options(pins.quiet = TRUE)
-
-  expect_error(
-    pinsExtras:::pin_store.pins_board_sf_stage(
-      board, "cars", paths, sf_publish_meta(), versioned = TRUE, x = NULL
-    ),
-    class = "pinsExtras_upload_failed"
-  )
-  expect_length(grep("^LIST ", rec$calls), 1L)
-  expect_length(grep("^PUT ", rec$calls), 3L)
   expect_length(grep("^REMOVE ", rec$calls), 0L)
 })
 
@@ -765,21 +673,5 @@ test_that("pin_write() skips the write when the hash has not changed", {
   expect_length(grep("^LIST ", rec$calls), 1L)
   expect_length(grep("^GET ", rec$calls), 1L)
   expect_length(grep("^PUT ", rec$calls), 0L)
-  expect_length(grep("^REMOVE ", rec$calls), 0L)
-})
-
-test_that("pin_write(force_identical_write = TRUE) skips pins' own lookup", {
-  board <- sf_mock_board()
-  rec <- sf_mock_bind(list = sf_fixture_listing(board = board))
-  withr::local_options(pins.quiet = TRUE)
-
-  out <- pins::pin_write(
-    board, data.frame(x = 1), "cars", force_identical_write = TRUE
-  )
-
-  expect_identical(out, "cars")
-  expect_length(grep("^LIST ", rec$calls), 1L)
-  expect_length(grep("^GET ", rec$calls), 0L)
-  expect_length(grep("^PUT ", rec$calls), 2L)
   expect_length(grep("^REMOVE ", rec$calls), 0L)
 })

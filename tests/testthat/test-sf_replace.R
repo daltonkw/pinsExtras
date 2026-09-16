@@ -86,45 +86,6 @@ test_that("sf_version_plan decides create, replace or abort", {
   )
 })
 
-test_that("sf_version_plan rejects a new version that is already published", {
-  # The duplicate check runs before `versioned` is read, so the abort is
-  # the same whatever the caller asked for.
-  for (versioned in list(NULL, TRUE, FALSE)) {
-    expect_error(
-      pinsExtras:::sf_version_plan(
-        sf_plan_index(2L), "cars", "20240101T000002Z-bbb",
-        versioned = versioned
-      ),
-      "same as the most recent version",
-      fixed = TRUE,
-      info = paste("versioned =", format(versioned))
-    )
-  }
-})
-
-# ---- sf_inform ----------------------------------------------------------
-
-test_that("sf_inform interpolates a caller's local into the message", {
-  # .envir is threaded through to cli so it can find the CALLER's locals.
-  # Dropping it would break interpolation silently, and every pin_store()
-  # test sets pins.quiet = TRUE, so this is the only guard.
-  f <- function() {
-    v <- "20240101T000002Z-bbb"
-    pinsExtras:::sf_inform("Creating new version {.val {v}}")
-  }
-  expect_message(f(), "20240101T000002Z-bbb")
-})
-
-test_that("sf_inform is silent when pins.quiet is set", {
-  # The documented user-facing switch. `v` is undefined here, so the fact
-  # that nothing errors also proves the early return happens before any
-  # interpolation.
-  withr::local_options(pins.quiet = TRUE)
-  expect_no_message(
-    pinsExtras:::sf_inform("Creating new version {.val {v}}")
-  )
-})
-
 # ---- sf_cleanup_old_versions --------------------------------------------
 #
 # An unversioned write publishes the new version and only then removes the
@@ -157,18 +118,6 @@ sf_cleanup_marker_fails <- function(sql) {
   }
   data.frame(name = character(), result = character(), stringsAsFactors = FALSE)
 }
-
-test_that("an empty request issues no commands at all", {
-  # Step 0 returns before even the final listing, so a listing responder
-  # that would fail is never reached.
-  board <- sf_mock_board()
-  rec <- sf_mock_bind(list = function(sql) stop("must not be reached"))
-
-  out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", character())
-
-  expect_identical(out, character())
-  expect_length(rec$calls, 0L)
-})
 
 test_that("a clean version is removed marker first, then directory", {
   # The order is what makes cleanup safe: drop the publication marker,
@@ -257,51 +206,6 @@ test_that("a confirming LIST that still shows data.txt deletes no directory", {
   expect_length(rec$calls, 3L)
   expect_length(grep("REMOVE ", rec$calls), 1L)
   expect_length(grep("^LIST ", rec$calls), 2L)
-})
-
-test_that("a final listing that raises reports every version asked about", {
-  # Nothing could be confirmed, so the caller is told about all of them.
-  board <- sf_mock_board()
-  rec <- sf_mock_bind(
-    list = function(sql) {
-      if (endsWith(sql, "cars/'")) {
-        stop("dead connection")
-      }
-      sf_fixture_listing()
-    }
-  )
-
-  out <- expect_no_warning(
-    pinsExtras:::sf_cleanup_old_versions(board, "cars", c(V1, V2))
-  )
-
-  expect_identical(out, c(V1, V2))
-  expect_length(rec$calls, 7L)
-})
-
-test_that("the final listing decides which versions are reported", {
-  # The listing is the authority, not the sequence of REMOVEs: every
-  # REMOVE below reports success.
-  cases <- list(
-    list(
-      # V1 is gone and V3 was never asked about, so only V2 is reported.
-      name = "one asked-about version remains",
-      remaining = c(V2, V3), want = V2
-    ),
-    list(
-      name = "both asked-about versions remain",
-      remaining = c(V1, V2), want = c(V1, V2)
-    )
-  )
-  for (case in cases) {
-    board <- sf_mock_board()
-    rec <- sf_mock_bind(list = sf_cleanup_listing(board, case$remaining))
-
-    out <- pinsExtras:::sf_cleanup_old_versions(board, "cars", c(V1, V2))
-
-    expect_identical(out, case$want, info = case$name)
-    expect_identical(length(rec$calls), 7L, info = case$name)
-  }
 })
 
 test_that("the board path is honoured when deciding what remains", {

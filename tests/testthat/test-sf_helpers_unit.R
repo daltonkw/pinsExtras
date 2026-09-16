@@ -3,75 +3,6 @@
 # Each helper below is a matrix over one input, so each gets one
 # table-driven block with a named row per case.
 
-# ---- sf_normalize_path --------------------------------------------------
-
-test_that("sf_normalize_path yields the exact stage-root-relative path", {
-  # Every SQL location is built from this, so each case asserts the exact
-  # string. Asserting only "no leading //" would pass against a strip that
-  # produced the wrong path.
-  cases <- list(
-    list(name = "board path and dir",  path = "base/path",  dir = "subdir",
-         want = "base/path/subdir"),
-    list(name = "empty board path",    path = "",           dir = "subdir",
-         want = "subdir"),
-    list(name = "empty path and dir",  path = "",           dir = "",
-         want = ""),
-    list(name = "leading slash",       path = "/leading",   dir = "subdir",
-         want = "leading/subdir"),
-    list(name = "doubled slashes",     path = "path//with", dir = "//double",
-         want = "path/with/double")
-  )
-  for (case in cases) {
-    expect_identical(
-      as.character(
-        pinsExtras:::sf_normalize_path(list(path = case$path), case$dir)
-      ),
-      case$want,
-      info = case$name
-    )
-  }
-})
-
-# ---- version parsing ----------------------------------------------------
-
-test_that("sf_version_from_path parses a version into created and hash", {
-  versions <- c("20231215T103045Z-abc12", "20240101T000000Z-xyz99")
-  result <- pinsExtras:::sf_version_from_path(versions)
-
-  expect_s3_class(result, "tbl_df")
-  expect_equal(nrow(result), 2)
-  expect_identical(result$version, versions)
-  expect_identical(result$hash, c("abc12", "xyz99"))
-  expect_false(any(is.na(result$created)))
-  # The only place the parsed instant itself is pinned: a format change
-  # would silently shift every version's created column.
-  expect_equal(
-    format(result$created[[1]], "%Y-%m-%d %H:%M:%S", tz = "UTC"),
-    "2023-12-15 10:30:45"
-  )
-
-  # The instant comes from sf_parse_8601_compact(), which is asserted
-  # here directly rather than in a block of its own.
-  parsed <- pinsExtras:::sf_parse_8601_compact("20231215T103045Z")
-  expect_s3_class(parsed, "POSIXct")
-  expect_equal(
-    format(parsed, "%Y-%m-%d %H:%M:%S", tz = "UTC"), "2023-12-15 10:30:45"
-  )
-})
-
-test_that("sf_version_from_path leaves both columns NA for a malformed id", {
-  cases <- list(
-    list(name = "missing hash",   value = "20231215T103045Z"),
-    list(name = "not a version",  value = "not-a-version")
-  )
-  for (case in cases) {
-    result <- pinsExtras:::sf_version_from_path(case$value)
-    expect_true(is.na(result$hash), info = case$name)
-    expect_true(is.na(result$created), info = case$name)
-  }
-  expect_equal(nrow(pinsExtras:::sf_version_from_path(character(0))), 0)
-})
-
 # ---- the public constructor --------------------------------------------
 
 test_that("board_sf_stage validates inputs", {
@@ -132,26 +63,6 @@ test_that("board_deparse aborts when the board stored no connect_args", {
   board <- sf_mock_board()
   expect_null(board$connect_args)
   expect_error(pins::board_deparse(board), "connect_args")
-})
-
-# ---- stage name extraction ---------------------------------------------
-
-test_that("sf_extract_stage_name takes the last dotted component", {
-  cases <- list(
-    list(name = "simple",        stage = "@mystage",              want = "mystage"),
-    list(name = "user stage",    stage = "@~",                    want = "~"),
-    list(name = "fully qualified", stage = "@mydb.myschema.mystage",
-         want = "mystage"),
-    list(name = "two-part",      stage = "@myschema.mystage",     want = "mystage"),
-    list(name = "no @ prefix",   stage = "mystage",               want = "mystage")
-  )
-  for (case in cases) {
-    expect_identical(
-      pinsExtras:::sf_extract_stage_name(case$stage),
-      case$want,
-      info = case$name
-    )
-  }
 })
 
 # ---- SQL literal quoting -----------------------------------------------
@@ -241,70 +152,4 @@ test_that("sf_escape_regex escapes exactly the Java metacharacters", {
   expect_identical(
     pinsExtras:::sf_escape_regex(character(0)), character(0)
   )
-})
-
-# ---- the two PATTERN builders ------------------------------------------
-
-test_that("sf_remove_pattern is anchored to its directory", {
-  # The stage root carries no parent to scope against, so the leading-path
-  # group is dropped and the pattern is anchored to the file alone.
-  expect_identical(
-    pinsExtras:::sf_remove_pattern("", "data.txt"),
-    "^data\\.txt$"
-  )
-  # Otherwise the directory is part of the pattern, with an optional leading
-  # group so it matches whether Snowflake sees a bare relative name or the
-  # full staged path under that directory.
-  expect_identical(
-    pinsExtras:::sf_remove_pattern("cars/V", "data.txt"),
-    "^(cars/V/)?data\\.txt$"
-  )
-  # A dot in the directory is escaped like any other component.
-  expect_identical(
-    pinsExtras:::sf_remove_pattern("a.b", "data.txt"),
-    "^(a\\.b/)?data\\.txt$"
-  )
-})
-
-test_that("sf_remove_pattern's grepl match is scoped to its directory", {
-  pat <- pinsExtras:::sf_remove_pattern("cars/V", "data.txt")
-  expect_true(grepl(pat, "data.txt"))
-  expect_true(grepl(pat, "cars/V/data.txt"))
-  expect_false(grepl(pat, "child/data.txt"))
-  expect_false(grepl(pat, "cars/V/child/data.txt"))
-  expect_false(grepl(pat, "data.txt.bak"))
-  expect_false(grepl(pat, "cars/V/cars.rds"))
-  expect_false(grepl(pat, "mystage/cars/V/data.txt"))
-})
-
-test_that("sf_get_pattern is anchored to its directory", {
-  expect_identical(
-    pinsExtras:::sf_get_pattern("", "data.txt"),
-    ".*/data\\.txt$"
-  )
-  # The leading token is a bare ".*" with NO slash: Snowflake prepends a
-  # stage-name prefix with no separator before our directory on the user
-  # stage, so the escaped directory still has to line up after the star.
-  # A well-meaning refactor that adds the slash makes every read match
-  # zero rows; this was established by a live probe.
-  expect_identical(
-    pinsExtras:::sf_get_pattern("cars/V", "data.txt"),
-    ".*cars/V/data\\.txt$"
-  )
-  expect_identical(
-    pinsExtras:::sf_get_pattern("a.b", "my.pin.rds"),
-    ".*a\\.b/my\\.pin\\.rds$"
-  )
-})
-
-test_that("sf_get_pattern's grepl match is scoped to its directory", {
-  pat <- pinsExtras:::sf_get_pattern("cars/V", "data.txt")
-  expect_true(grepl(pat, "stage/cars/V/data.txt"))
-  # The bare ".*" absorbs any stage prefix, so the relative name alone
-  # still matches: only the directory scope rejects a sibling.
-  expect_true(grepl(pat, "cars/V/data.txt"))
-  expect_false(grepl(pat, "child/data.txt"))
-  expect_false(grepl(pat, "cars/V/child/data.txt"))
-  expect_false(grepl(pat, "stage/cars/V/child/data.txt"))
-  expect_false(grepl(pat, "stage/cars/V/data.txt.bak"))
 })

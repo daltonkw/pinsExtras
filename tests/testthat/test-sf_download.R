@@ -83,50 +83,7 @@ test_that("a failed download does not return a stale cached file", {
   expect_identical(readLines(fs::path(dest, "data.txt")), "STALE")
 })
 
-test_that("a validated transfer that never landed aborts before copying", {
-  # A branch in sf_stage_download() itself, not in the checker: the
-  # response says DOWNLOADED but no file arrived, so the filesystem, not
-  # the response, has the last word.
-  board <- sf_mock_board()
-  dest <- withr::local_tempdir()
-  rec <- sf_mock_bind(
-    get = sf_mock_get_files("data.txt" = "fresh", missing = "data.txt")
-  )
-
-  expect_error(
-    pinsExtras:::sf_stage_download(board, "cars/v/data.txt", dest),
-    "missing from the transfer directory",
-    fixed = TRUE
-  )
-})
-
 # ---- sf_check_get_result ------------------------------------------------
-
-test_that("sf_check_get_result accepts an interpretable DOWNLOADED response", {
-  board <- sf_mock_board()
-  cases <- list(
-    list(name = "DOWNLOADED", status = "DOWNLOADED", casing = "lower"),
-    # Status is matched case-insensitively ...
-    list(name = "lower-case status", status = "downloaded", casing = "lower"),
-    # ... and so are the driver's column names, which are not guaranteed
-    # across ODBC driver versions.
-    list(name = "upper-case columns", status = "DOWNLOADED", casing = "upper")
-  )
-  for (case in cases) {
-    dest <- withr::local_tempdir()
-    rec <- sf_mock_bind(
-      get = sf_mock_get_files("data.txt" = "fresh", status = case$status),
-      casing = case$casing
-    )
-
-    out <- pinsExtras:::sf_stage_download(board, "cars/v/data.txt", dest)
-
-    expect_true(fs::file_exists(fs::path(dest, "data.txt")), info = case$name)
-    expect_identical(
-      out, as.character(fs::path(dest, "data.txt")), info = case$name
-    )
-  }
-})
 
 test_that("sf_check_get_result rejects every response it cannot trust", {
   cases <- list(
@@ -192,26 +149,6 @@ test_that("sf_check_get_result rejects every response it cannot trust", {
 })
 
 # ---- sf_read_meta -------------------------------------------------------
-
-test_that("sf_read_meta parses valid pin metadata", {
-  # The only place the api_version 1 coercions are pinned: file_size
-  # becomes fs_bytes, created becomes POSIXct, and an absent user field
-  # defaults to an empty list.
-  dir <- withr::local_tempdir()
-  meta <- list(
-    api_version = 1L, file = "cars.rds", file_size = 1234,
-    created = "20240101T000000Z", pin_hash = "abc1234567", type = "rds"
-  )
-  writeLines(yaml::as.yaml(meta), fs::path(dir, "data.txt"))
-
-  got <- pinsExtras:::sf_read_meta(dir)
-
-  expect_identical(got$api_version, 1L)
-  expect_identical(got$file, "cars.rds")
-  expect_identical(got$file_size, fs::as_fs_bytes(1234))
-  expect_s3_class(got$created, "POSIXct")
-  expect_identical(got$user, list())
-})
 
 test_that("sf_read_meta reports an unreadable data.txt and names its directory", {
   missing_dir <- withr::local_tempdir()

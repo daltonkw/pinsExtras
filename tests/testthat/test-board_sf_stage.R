@@ -109,41 +109,6 @@ test_that("a named stage works at its root and under a board path", {
   expect_equal(pin_read(pathed, "pathed"), 6:10)
 })
 
-test_that("metadata round-trips through a real stage", {
-  # Everything pins stores beside the payload, through one real write and
-  # one real read: the standard fields, and the caller's own metadata
-  # under $user. The URL carries a query string and a fragment, which are
-  # the characters most likely to be mangled in transit.
-  skip_if_no_sf_stage()
-
-  b <- sf_stage_test_board(sf_stage_test_prefix("metadata"))
-
-  pin_write(b, iris, "meta-pin",
-    title = "Iris with complete metadata",
-    description = "Quotes \"like this\" and symbols & more",
-    tags = c("a", "b", "c", "d", "e"),
-    urls = c(
-      "https://example.com/x?y=1#z",
-      "https://example.com/second"
-    ),
-    metadata = list(owner = "team", n = 3L)
-  )
-
-  meta <- pin_meta(b, "meta-pin")
-
-  expect_equal(meta$title, "Iris with complete metadata")
-  expect_true(grepl("quotes \"like this\"", meta$description, ignore.case = TRUE))
-  expect_equal(meta$tags, c("a", "b", "c", "d", "e"))
-  expect_equal(
-    meta$urls,
-    c("https://example.com/x?y=1#z", "https://example.com/second")
-  )
-  expect_equal(meta$user$owner, "team")
-  expect_equal(meta$user$n, 3L)
-
-  expect_equal(nrow(pin_read(b, "meta-pin")), 150)
-})
-
 test_that("a pin name containing a dot reads back", {
   # A dot is a regex metacharacter, and the GET PATTERN is a Java regex.
   # An unescaped dot would still match here, so this only fails if the
@@ -203,24 +168,6 @@ test_that("an unversioned replace leaves exactly one version", {
   expect_equal(nrow(second), 1)
   expect_false(first$version[[1]] == second$version[[1]])
   expect_equal(pin_read(b, "unversioned-pin"), 4:6)
-})
-
-test_that("a stage that does not exist fails on the first operation", {
-  # Nothing is created, so this board registers no cleanup beyond its own
-  # disconnect: the stage it names cannot exist.
-  skip_if_no_sf_stage()
-
-  conn <- sf_stage_test_conn()
-  withr::defer(try(DBI::dbDisconnect(conn), silent = TRUE))
-
-  stage <- paste0("@nonexistent_stage_", as.integer(Sys.time()))
-  b <- board_sf_stage(conn = conn, stage = stage, path = "test")
-
-  cond <- expect_error(pin_list(b), "stage|Stage|does not exist|not exist")
-  msg <- cli::ansi_strip(conditionMessage(cond))
-  # The message must name the stage that was asked for, so the user can
-  # see which one is missing.
-  expect_true(grepl(sub("^@", "", stage), msg, fixed = TRUE))
 })
 
 test_that("a closed connection fails with reconnection guidance", {

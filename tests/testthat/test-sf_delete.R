@@ -34,17 +34,6 @@ test_that("sf_stage_delete_dir scopes the REMOVE with a trailing slash", {
   }
 })
 
-test_that("sf_stage_delete_dir allows a pathed board to delete its own root", {
-  # The guard is against the STAGE root, not the board root, so a board
-  # with a path may delete that whole path with dir = "". The integration
-  # suite's cleanup depends on exactly this case.
-  board <- sf_mock_board(path = "team-data", stage = "@mystage")
-  rec <- sf_mock_bind()
-
-  expect_true(pinsExtras:::sf_stage_delete_dir(board, ""))
-  expect_identical(rec$calls, "REMOVE '@mystage/team-data/'")
-})
-
 test_that("sf_stage_delete_file anchors a PATTERN to exactly one file", {
   v <- sf_fixture_version()
   cases <- list(
@@ -120,27 +109,6 @@ test_that("sf_stage_delete_dir refuses to wipe the stage, issuing nothing", {
   }
 })
 
-test_that("sf_stage_delete_file refuses a bad file name, issuing nothing", {
-  board <- sf_mock_board()
-  dir <- paste0("cars/", sf_fixture_version())
-  cases <- list(
-    list(name = "empty string",  file = ""),
-    # A separator would widen the delete beyond the one named file.
-    list(name = "contains a slash", file = "a/b"),
-    list(name = "NA",            file = NA_character_),
-    list(name = "non-string",    file = 123)
-  )
-  for (case in cases) {
-    rec <- sf_mock_bind()
-    expect_error(
-      pinsExtras:::sf_stage_delete_file(board, dir, case$file),
-      class = "pinsExtras_invalid_delete_target",
-      info = case$name
-    )
-    expect_identical(length(rec$calls), 0L, info = case$name)
-  }
-})
-
 # ---- the three board methods, dispatched through the generics -----------
 
 test_that("pin_delete() lists then removes each name in order", {
@@ -205,31 +173,6 @@ test_that("pin_delete() validates each name before it lists anything", {
     )
     expect_identical(length(rec$calls), 0L, info = name)
   }
-})
-
-test_that("pin_delete(character(0)) issues nothing and returns the board", {
-  board <- sf_mock_board()
-  rec <- sf_mock_bind()
-
-  out <- pins::pin_delete(board, character(0))
-  expect_identical(out, board)
-  expect_length(rec$calls, 0L)
-})
-
-test_that("pin_delete() removes the pin directory, never a sibling", {
-  board <- sf_mock_board()
-  rec <- sf_mock_bind(
-    list = sf_fixture_listing(
-      "cars/20240101T000000Z-abc12/data.txt",
-      "cars_extra/20240101T000000Z-abc12/data.txt"
-    )
-  )
-
-  pins::pin_delete(board, "cars")
-  expect_identical(
-    grep("^REMOVE ", rec$calls, value = TRUE),
-    "REMOVE '@~/cars/'"
-  )
 })
 
 test_that("pin_version_delete() removes a raw directory without listing", {

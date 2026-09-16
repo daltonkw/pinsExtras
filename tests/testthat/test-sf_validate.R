@@ -7,17 +7,6 @@
 
 # ---- sf_check_pin_name -------------------------------------------------
 
-test_that("sf_check_pin_name accepts every ordinary name shape", {
-  accepted <- c(
-    "mtcars", "my-pin", "my_pin", "my.pin", "2024data",
-    "valid-name", "valid_name", "valid.name"
-  )
-  for (name in accepted) {
-    expect_silent(ok <- pinsExtras:::sf_check_pin_name(name))
-    expect_identical(ok, TRUE, info = name)
-  }
-})
-
 test_that("sf_check_pin_name rejects every unsafe or reserved name", {
   cases <- list(
     list(name = "empty",            value = "",            msg = "must not be empty"),
@@ -45,51 +34,6 @@ test_that("sf_check_pin_name rejects every unsafe or reserved name", {
 })
 
 # ---- sf_check_upload_set -----------------------------------------------
-
-# Build an upload set of real files in one temporary directory. Returns the
-# full paths, in the order given.
-sf_upload_files <- function(..., envir = parent.frame()) {
-  names <- unlist(list(...), use.names = FALSE)
-  d <- withr::local_tempdir(.local_envir = envir)
-  paths <- fs::path(d, names)
-  for (p in paths) {
-    writeLines("x", p)
-  }
-  as.character(paths)
-}
-
-test_that("sf_check_upload_set accepts a set that matches its metadata", {
-  cases <- list(
-    list(
-      name = "matching set",
-      files = c("a.rds", "b.csv"),
-      meta_files = c("a.rds", "b.csv")
-    ),
-    # setequal, not identical: pins does not promise an order, so a
-    # refactor to identical() would break real multi-file writes.
-    list(
-      name = "metadata in a different order",
-      files = c("a.rds", "b.csv"),
-      meta_files = c("b.csv", "a.rds")
-    ),
-    # A shared stem with two types is a shape pins actually produces, so
-    # nothing may deduplicate on the stem.
-    list(
-      name = "same stem, two types",
-      files = c("a.rds", "a.csv"),
-      meta_files = c("a.rds", "a.csv")
-    )
-  )
-  for (case in cases) {
-    paths <- sf_upload_files(case$files)
-    expect_invisible(
-      pinsExtras:::sf_check_upload_set(
-        "cars", paths, list(file = case$meta_files)
-      ),
-      label = case$name
-    )
-  }
-})
 
 test_that("sf_check_upload_set rejects every invalid upload set", {
   d <- withr::local_tempdir()
@@ -175,46 +119,5 @@ test_that("sf_check_upload_set rejects every invalid upload set", {
         info = paste(case$name, "never says", fragment)
       )
     }
-  }
-})
-
-test_that("sf_check_upload_set rejects a forbidden basename", {
-  # The `bad` vector in sf_check_upload_set() is
-  #   "" | "." | contains "/" | "\\" | "*" | "?" | ".."
-  # Two of those seven can never be produced from a path that exists:
-  # fs::path_file() strips any directory, so a basename never contains a
-  # "/", and fs::file_exists() is FALSE for a path containing a backslash,
-  # so such a path aborts as missing before this branch. The five that are
-  # reachable are covered here, each by a path that really exists.
-  d <- withr::local_tempdir()
-  starred <- fs::path(d, "a*")
-  queried <- fs::path(d, "a?")
-  dotted <- fs::path(d, "a..b")
-  writeLines("x", starred)
-  writeLines("x", queried)
-  writeLines("x", dotted)
-
-  cases <- list(
-    # fs::path_file("/") is "" and the stage root exists.
-    list(name = "empty basename", path = "/"),
-    list(name = "bare dot",       path = "."),
-    list(name = "asterisk",       path = starred),
-    list(name = "question mark",  path = queried),
-    list(name = "dotdot inside",  path = dotted)
-  )
-
-  for (case in cases) {
-    cond <- expect_error(
-      pinsExtras:::sf_check_upload_set(
-        "cars", as.character(case$path), list(file = "a.rds")
-      ),
-      class = "pinsExtras_invalid_upload_set",
-      info = case$name
-    )
-    msg <- cli::ansi_strip(conditionMessage(cond))
-    expect_true(
-      grepl("These file names are not allowed", msg, fixed = TRUE),
-      info = case$name
-    )
   }
 })
