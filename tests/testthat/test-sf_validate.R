@@ -1,254 +1,123 @@
 # Write-path validation. sf_check_pin_name() and sf_check_upload_set()
 # check local inputs before a single PUT moves a byte, so neither issues
 # SQL and there is nothing to mock.
+#
+# Both functions are matrices over one input, so each is driven by one
+# table: a row per literal, named so a failure says which cell broke.
 
 # ---- sf_check_pin_name -------------------------------------------------
 
-test_that("sf_check_pin_name accepts ordinary names", {
-  expect_silent(pinsExtras:::sf_check_pin_name("mtcars"))
-  expect_silent(pinsExtras:::sf_check_pin_name("my-pin"))
-  expect_silent(pinsExtras:::sf_check_pin_name("my_pin"))
-  expect_silent(pinsExtras:::sf_check_pin_name("my.pin"))
-  expect_silent(pinsExtras:::sf_check_pin_name("2024data"))
-})
-
-test_that("sf_check_pin_name accepts a 120-character name", {
-  name <- paste0(strrep("a", 115), strrep("1", 5))
-  expect_equal(nchar(name), 120L)
-  expect_silent(pinsExtras:::sf_check_pin_name(name))
-})
-
-test_that("sf_check_pin_name rejects an empty name", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name(""),
-    "must not be empty",
-    fixed = TRUE
+test_that("sf_check_pin_name rejects every unsafe or reserved name", {
+  cases <- list(
+    list(name = "empty",            value = "",            msg = "must not be empty"),
+    list(name = "reserved marker",  value = "data.txt",    msg = "Can't pin file called"),
+    # path_file() strips the directory first, so a directory-qualified
+    # data.txt is reported as the reserved name, not as a separator.
+    list(name = "a/data.txt",       value = "a/data.txt",  msg = "Can't pin file called"),
+    list(name = "slash",            value = "a/b",         msg = "Invalid pin name"),
+    list(name = "backslash",        value = "a\\b",        msg = "Invalid pin name"),
+    list(name = "leading dotdot",   value = "../escape",   msg = "Invalid pin name"),
+    list(name = "bare dot",         value = ".",           msg = "Invalid pin name"),
+    list(name = "asterisk",         value = "pin*",        msg = "Invalid pin name"),
+    list(name = "question mark",    value = "pin?",        msg = "Invalid pin name"),
+    list(name = "non-string scalar", value = 123,          msg = "must be a string"),
+    list(name = "non-string vector", value = c("a", "b"),  msg = "must be a string")
   )
-})
-
-test_that("sf_check_pin_name rejects the reserved data.txt name", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name("data.txt"),
-    "Can't pin file called",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name treats a/data.txt as the reserved name", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name("a/data.txt"),
-    "Can't pin file called",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name rejects a slash", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name("a/b"),
-    "Invalid pin name",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name rejects a backslash", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name("a\\b"),
-    "Invalid pin name",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name rejects a leading dot-dot", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name("../escape"),
-    "Invalid pin name",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name rejects a bare dot", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name("."),
-    "Invalid pin name",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name rejects an asterisk", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name("pin*"),
-    "Invalid pin name",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name rejects a question mark", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name("pin?"),
-    "Invalid pin name",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name rejects a non-string scalar", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name(123),
-    "must be a string",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_pin_name rejects a non-string vector", {
-  expect_error(
-    pinsExtras:::sf_check_pin_name(c("a", "b")),
-    "must be a string",
-    fixed = TRUE
-  )
+  for (case in cases) {
+    expect_error(
+      pinsExtras:::sf_check_pin_name(case$value),
+      regexp = case$msg,
+      fixed = TRUE,
+      info = case$name
+    )
+  }
 })
 
 # ---- sf_check_upload_set -----------------------------------------------
 
-test_that("sf_check_upload_set accepts a matching upload set", {
+test_that("sf_check_upload_set rejects every invalid upload set", {
   d <- withr::local_tempdir()
-  a <- fs::path(d, "a.rds")
-  b <- fs::path(d, "b.csv")
-  writeLines("x", a)
-  writeLines("x", b)
-  expect_invisible(
-    pinsExtras:::sf_check_upload_set(
-      "cars", c(a, b), list(file = c("a.rds", "b.csv"))
-    )
-  )
-})
+  present <- fs::path(d, "a.rds")
+  writeLines("x", present)
+  other <- fs::path(d, "b.csv")
+  writeLines("x", other)
 
-test_that("sf_check_upload_set ignores metadata$file order", {
-  d <- withr::local_tempdir()
-  a <- fs::path(d, "a.rds")
-  b <- fs::path(d, "b.csv")
-  writeLines("x", a)
-  writeLines("x", b)
-  expect_invisible(
-    pinsExtras:::sf_check_upload_set(
-      "cars", c(a, b), list(file = c("b.csv", "a.rds"))
-    )
-  )
-})
-
-test_that("sf_check_upload_set allows same-stem multi-type payloads", {
-  d <- withr::local_tempdir()
-  a <- fs::path(d, "a.rds")
-  b <- fs::path(d, "a.csv")
-  writeLines("x", a)
-  writeLines("x", b)
-  expect_invisible(
-    pinsExtras:::sf_check_upload_set(
-      "cars", c(a, b), list(file = c("a.rds", "a.csv"))
-    )
-  )
-})
-
-test_that("sf_check_upload_set rejects an empty set", {
-  expect_error(
-    pinsExtras:::sf_check_upload_set(
-      "cars", character(0), list(file = NULL)
-    ),
-    "The upload set is empty.",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_upload_set names one missing file", {
-  d <- withr::local_tempdir()
-  a <- fs::path(d, "a.rds")
-  writeLines("x", a)
-  cond <- expect_error(
-    pinsExtras:::sf_check_upload_set(
-      "cars", c(a, fs::path(d, "gone.rds")), list(file = "a.rds")
-    ),
-    class = "pinsExtras_invalid_upload_set"
-  )
-  msg <- cli::ansi_strip(conditionMessage(cond))
-  expect_true(grepl("gone.rds", msg, fixed = TRUE))
-})
-
-test_that("sf_check_upload_set names both missing files", {
-  d <- withr::local_tempdir()
-  a <- fs::path(d, "a.rds")
-  writeLines("x", a)
-  g1 <- fs::path(d, "gone1.rds")
-  g2 <- fs::path(d, "gone2.rds")
-  cond <- expect_error(
-    pinsExtras:::sf_check_upload_set(
-      "cars", c(a, g1, g2), list(file = "a.rds")
-    ),
-    class = "pinsExtras_invalid_upload_set"
-  )
-  msg <- cli::ansi_strip(conditionMessage(cond))
-  expect_true(grepl("gone1.rds", msg, fixed = TRUE))
-  expect_true(grepl("gone2.rds", msg, fixed = TRUE))
-})
-
-test_that("sf_check_upload_set rejects a data.txt payload", {
-  d <- withr::local_tempdir()
-  dtxt <- fs::path(d, "data.txt")
-  writeLines("x", dtxt)
-  expect_error(
-    pinsExtras:::sf_check_upload_set(
-      "cars", dtxt, list(file = "data.txt")
-    ),
-    "A pinned file cannot be named",
-    fixed = TRUE
-  )
-})
-
-test_that("sf_check_upload_set rejects duplicate basenames", {
   one <- fs::path(withr::local_tempdir(), "one")
   two <- fs::path(withr::local_tempdir(), "two")
   fs::dir_create(one)
   fs::dir_create(two)
-  a1 <- fs::path(one, "a.rds")
-  a2 <- fs::path(two, "a.rds")
-  writeLines("x", a1)
-  writeLines("x", a2)
-  cond <- expect_error(
-    pinsExtras:::sf_check_upload_set(
-      "cars", c(a1, a2), list(file = "a.rds")
-    ),
-    class = "pinsExtras_invalid_upload_set"
-  )
-  msg <- cli::ansi_strip(conditionMessage(cond))
-  expect_true(grepl("a.rds", msg, fixed = TRUE))
-  expect_false(grepl("/one/", msg, fixed = TRUE))
-  expect_false(grepl("/two/", msg, fixed = TRUE))
-})
+  dupe1 <- fs::path(one, "a.rds")
+  dupe2 <- fs::path(two, "a.rds")
+  writeLines("x", dupe1)
+  writeLines("x", dupe2)
 
-test_that("sf_check_upload_set rejects a metadata/upload-set mismatch", {
-  d <- withr::local_tempdir()
-  a <- fs::path(d, "a.rds")
-  b <- fs::path(d, "b.csv")
-  writeLines("x", a)
-  writeLines("x", b)
-  cond <- expect_error(
-    pinsExtras:::sf_check_upload_set(
-      "cars", c(a, b), list(file = "a.rds")
-    ),
-    class = "pinsExtras_invalid_upload_set"
-  )
-  msg <- cli::ansi_strip(conditionMessage(cond))
-  expect_true(grepl("Metadata lists", msg, fixed = TRUE))
-})
+  dtxt <- fs::path(d, "data.txt")
+  writeLines("x", dtxt)
 
-test_that("sf_check_upload_set treats NULL metadata$file as a mismatch", {
-  d <- withr::local_tempdir()
-  a <- fs::path(d, "a.rds")
-  b <- fs::path(d, "b.csv")
-  writeLines("x", a)
-  writeLines("x", b)
-  expect_error(
-    pinsExtras:::sf_check_upload_set(
-      "cars", c(a, b), list(file = NULL)
+  cases <- list(
+    list(
+      name = "empty set",
+      paths = character(0), meta_files = NULL,
+      says = "The upload set is empty."
     ),
-    "Metadata lists",
-    fixed = TRUE
+    list(
+      name = "one missing file",
+      paths = c(present, fs::path(d, "gone.rds")), meta_files = "a.rds",
+      says = "gone.rds"
+    ),
+    list(
+      name = "two missing files",
+      paths = c(present, fs::path(d, "gone1.rds"), fs::path(d, "gone2.rds")),
+      meta_files = "a.rds",
+      says = c("gone1.rds", "gone2.rds")
+    ),
+    list(
+      name = "data.txt payload",
+      paths = dtxt, meta_files = "data.txt",
+      says = "A pinned file cannot be named"
+    ),
+    list(
+      name = "duplicate basenames",
+      paths = c(dupe1, dupe2), meta_files = "a.rds",
+      says = "a.rds",
+      # The message reports basenames, never the local directories they
+      # came from.
+      never = c("/one/", "/two/")
+    ),
+    list(
+      name = "metadata disagrees with the set",
+      paths = c(present, other), meta_files = "a.rds",
+      says = "Metadata lists"
+    ),
+    # names(metadata) still contains "file", so meta_files is NULL and
+    # setequal fails rather than the field being treated as absent.
+    list(
+      name = "NULL metadata$file",
+      paths = c(present, other), meta_files = NULL,
+      says = "Metadata lists"
+    )
   )
+
+  for (case in cases) {
+    cond <- expect_error(
+      pinsExtras:::sf_check_upload_set(
+        "cars", case$paths, list(file = case$meta_files)
+      ),
+      class = "pinsExtras_invalid_upload_set",
+      info = case$name
+    )
+    msg <- cli::ansi_strip(conditionMessage(cond))
+    for (fragment in case$says) {
+      expect_true(
+        grepl(fragment, msg, fixed = TRUE),
+        info = paste(case$name, "says", fragment)
+      )
+    }
+    for (fragment in case$never %||% character()) {
+      expect_false(
+        grepl(fragment, msg, fixed = TRUE),
+        info = paste(case$name, "never says", fragment)
+      )
+    }
+  }
 })

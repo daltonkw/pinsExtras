@@ -1,3 +1,40 @@
+# pinsExtras 0.1.3
+
+Test suite consolidation, and one fix.
+
+* `board_deparse()` now carries a custom `cache` through to the rebuilt
+  board. Previously the deparsed expression omitted it, so a board created
+  with the per-account cache the documentation recommends was rebuilt with
+  the default shared one. A board using the default cache still deparses
+  without a `cache` argument, so the expression stays portable across
+  machines, as pins' own boards do. Found by an independent review of the
+  test suite (gpt-6-astra).
+
+* The test suite was re-read as a whole and cut from 385 `test_that()`
+  blocks to 60, keeping only tests that guard a contract with Snowflake,
+  pins or the user: one table-driven test per validator matrix instead of
+  one block per cell, the per-verb request-count file folded into the
+  tests that already assert each operation's exact command sequence, and
+  helper-level tests dropped where a public-method test already reaches
+  the helper.
+* Four gaps the volume had hidden are now tested: the last `PUT` of an
+  unversioned replace precedes its first `REMOVE`; nothing is removed when
+  a metadata upload is uncertain; the identical-hash skip in `pin_write()`
+  is exercised with real metadata; and `board_deparse()` round-trips
+  offline.
+* Two helpers nothing called, `sf_stage_exists()` and `sf_end_with_slash()`,
+  are removed along with their tests.
+* The opt-in live suite now checks only what a real stage can prove
+  (accepted SQL shapes, prefix scoping of siblings, a dotted name in a
+  `PATTERN`, an unversioned replace, a named stage, a closed connection)
+  and no longer pays a Snowflake round trip to re-test `saveRDS()` and
+  `yaml`.
+* Known conformance gaps, found by running pins' own board conformance
+  helpers against this board and not fixed in this release: missing-pin,
+  missing-version and invalid-name errors are raised without pins' classed
+  conditions (`pins_pin_missing`, `pins_pin_version_missing`,
+  `pins_check_name`), and downloaded cache files are not made read-only.
+
 # pinsExtras 0.1.1
 
 * A `PUT` or `GET` response whose `target`, `file`, or `status` value is
